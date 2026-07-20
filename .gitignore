@@ -1,0 +1,20 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-ssr/
+
+# Large media files
+*.mp4
+
+# Environment & IDE
+.env*.local
+.vscode/
+.idea/
+.DS_Store
