@@ -434,6 +434,42 @@ export default function SetupScreen() {
     setShowBulkTable(false);
   };
 
+  const autoSyncConfig = async (customMenuItems, customTables, customWaiters, customAreas) => {
+    try {
+      const itemsToSync = customMenuItems || menuItems;
+      const tablesToSync = customTables || tables;
+      const waitersToSync = customWaiters || waiters;
+      const areasToSync = customAreas || areas;
+      const catList = Array.from(new Set([
+        ...categories,
+        ...itemsToSync.map(item => item.category)
+      ])).filter(Boolean);
+
+      const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
+      const response = await fetch(`${API_URL}/api/activation/save-config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          areas: areasToSync, 
+          tables: tablesToSync, 
+          menuItems: itemsToSync,
+          categories: catList,
+          waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
+          syncCode: syncCode,
+          restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.code) {
+          setSyncCode(data.code);
+        }
+      }
+    } catch (e) {
+      console.warn('[SetupScreen] Background auto-sync failed:', e);
+    }
+  };
+
   const handleAddMenu = (e) => {
     e.preventDefault();
     if (!newMenuName || !newMenuPrice) return;
@@ -446,23 +482,30 @@ export default function SetupScreen() {
       type: newMenuType,
       status: "Available"
     };
-    setMenuItems([...menuItems, newM]);
+    const updated = [...menuItems, newM];
+    setMenuItems(updated);
     setNewMenuName("");
     setNewMenuCode("");
     setNewMenuPrice("");
     setShowAddMenu(false);
+    autoSyncConfig(updated);
   };
 
   const deleteTable = (id, areaName) => {
     if (window.confirm("Remove this table?")) {
-      setTables(tables.filter(t => t.id !== id));
-      setAreas(areas.map(a => a.name === areaName ? { ...a, tables: Math.max(0, a.tables - 1) } : a));
+      const updatedT = tables.filter(t => t.id !== id);
+      setTables(updatedT);
+      const updatedA = areas.map(a => a.name === areaName ? { ...a, tables: Math.max(0, a.tables - 1) } : a);
+      setAreas(updatedA);
+      autoSyncConfig(null, updatedT, null, updatedA);
     }
   };
 
   const deleteMenu = (id) => {
     if (window.confirm("Remove this menu item?")) {
-      setMenuItems(menuItems.filter(m => m.id !== id));
+      const updatedM = menuItems.filter(m => m.id !== id);
+      setMenuItems(updatedM);
+      autoSyncConfig(updatedM);
     }
   };
 
