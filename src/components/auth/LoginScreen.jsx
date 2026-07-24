@@ -15,27 +15,57 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
     setTimeout(() => {
       try {
         let accounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
-        let matchedAccount = accounts.find(a => 
-          (a.email?.toLowerCase() === credential.toLowerCase() || 
-           a.restaurantName?.toLowerCase() === credential.toLowerCase()) && 
-          a.password === password
-        );
-        
-        if (!matchedAccount && credential.toLowerCase() === 'adithyanvijayan21644@gmail.com' && password === 'test123') {
-          matchedAccount = {
-            id: Date.now(),
-            email: 'adithyanvijayan21644@gmail.com',
-            restaurantName: 'AVKK',
-            ownerName: 'ADITHYAN',
-            password: 'test123',
-            syncCode: 'SD-28E792',
+
+        const defaultAccounts = [
+          {
+            id: 'ryxon-15',
+            email: 'adithyanvijayan1644@gmail.com',
+            phone: '9316971598',
+            restaurantName: 'Ryxon',
+            ownerName: 'Adithyan',
+            password: 'avk456',
+            syncCode: 'SD-612376',
             setupCompleted: true
-          };
-          accounts.push(matchedAccount);
-          localStorage.setItem('smartdine_accounts', JSON.stringify(accounts));
+          }
+        ];
+
+        defaultAccounts.forEach(def => {
+          const idx = accounts.findIndex(a => 
+            a.restaurantName?.toLowerCase() === def.restaurantName.toLowerCase() || 
+            a.email?.toLowerCase() === def.email.toLowerCase() ||
+            (a.syncCode && a.syncCode.toLowerCase() === def.syncCode.toLowerCase())
+          );
+          if (idx >= 0) {
+            accounts[idx] = { ...accounts[idx], ...def };
+          } else {
+            accounts.push(def);
+          }
+        });
+        localStorage.setItem('smartdine_accounts', JSON.stringify(accounts));
+
+        const cleanedCred = credential.trim().toLowerCase();
+        const numericCred = cleanedCred.replace(/\D/g, '');
+
+        let matchedAccount = accounts.find(a => {
+          const emailMatch = a.email?.toLowerCase() === cleanedCred;
+          const nameMatch = a.restaurantName?.toLowerCase() === cleanedCred;
+          const phoneMatch = Boolean(numericCred && numericCred.length >= 7 && a.phone && a.phone.replace(/\D/g, '').includes(numericCred));
+          
+          return (emailMatch || nameMatch || phoneMatch) && a.password === password;
+        });
+
+        // Fail-safe direct fallback for Ryxon account
+        if (!matchedAccount && password === 'avk456') {
+          if (cleanedCred === '9316971598' || cleanedCred === 'ryxon' || cleanedCred === 'adithyanvijayan1644@gmail.com' || numericCred === '9316971598') {
+            matchedAccount = defaultAccounts[0];
+          }
         }
 
         if (matchedAccount) {
+          // Clear old browser memory / cached setup from previous sessions
+          localStorage.removeItem('smartdine_setup');
+          localStorage.removeItem('smartdine_session');
+          
           const syncCode = matchedAccount.syncCode || 'SD-28E792';
           localStorage.setItem('smartdine_active_email', matchedAccount.email);
           localStorage.setItem('smartdine_account', JSON.stringify(matchedAccount));
@@ -192,15 +222,15 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', marginBottom: 6, letterSpacing: '-0.4px' }}>Sign in to your account</h2>
-            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your restaurant email or name to continue</p>
+            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your mobile number or restaurant name to continue</p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Email or Restaurant Name</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Mobile Number or Restaurant Name</label>
               <input
                 type="text" value={credential} onChange={e => setCredential(e.target.value)}
-                placeholder="e.g. admin@surabhi.com" style={inp}
+                placeholder="e.g. 9316971598 or Ryxon" style={inp}
                 onFocus={e => e.target.style.borderColor = '#166534'} onBlur={e => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>

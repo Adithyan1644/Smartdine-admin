@@ -54,6 +54,10 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('smartdine_session');
+    localStorage.removeItem('smartdine_account');
+    localStorage.removeItem('smartdine_setup');
+    localStorage.removeItem('smartdine_active_email');
+    setAccount(null);
     setAppState('login');
   };
 

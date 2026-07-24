@@ -108,6 +108,64 @@ export default function SetupScreen() {
     return [];
   });
 
+  // 5. Addons State & Handlers
+  const [addons, setAddons] = useState([]);
+  const [showAddAddon, setShowAddAddon] = useState(false);
+  const [newAddonName, setNewAddonName] = useState("");
+  const [newAddonPrice, setNewAddonPrice] = useState("");
+
+  const fetchAddons = () => {
+    fetch(`${API_URL}/api/addons`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setAddons(data))
+      .catch(err => console.warn('[SetupScreen] Failed to fetch addons:', err));
+  };
+
+  React.useEffect(() => {
+    fetchAddons();
+  }, []);
+
+  const handleSaveAddon = async (e) => {
+    e.preventDefault();
+    if (!newAddonName.trim()) return;
+    try {
+      const res = await fetch(`${API_URL}/api/addons`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newAddonName.trim(),
+          price: parseFloat(newAddonPrice) || 0.0,
+          isAvailable: true
+        })
+      });
+      if (res.ok) {
+        const savedAddon = await res.json();
+        const updatedA = [...addons, savedAddon];
+        setAddons(updatedA);
+        setNewAddonName("");
+        setNewAddonPrice("");
+        setShowAddAddon(false);
+        autoSyncConfig(null, null, null, null, updatedA);
+      }
+    } catch (err) {
+      alert("Error saving addon: " + err.message);
+    }
+  };
+
+  const handleDeleteAddon = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this Add-on item?")) return;
+    try {
+      const res = await fetch(`${API_URL}/api/addons/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        const updatedA = addons.filter(a => a.id !== id);
+        setAddons(updatedA);
+        autoSyncConfig(null, null, null, null, updatedA);
+      }
+    } catch (err) {
+      alert("Error deleting addon: " + err.message);
+    }
+  };
+
   // Auto-fetch configuration from backend on mount
   React.useEffect(() => {
     fetch(`${API_URL}/api/activation/activate?code=${syncCode}`)
@@ -434,12 +492,13 @@ export default function SetupScreen() {
     setShowBulkTable(false);
   };
 
-  const autoSyncConfig = async (customMenuItems, customTables, customWaiters, customAreas) => {
+  const autoSyncConfig = async (customMenuItems, customTables, customWaiters, customAreas, customAddons) => {
     try {
       const itemsToSync = customMenuItems || menuItems;
       const tablesToSync = customTables || tables;
       const waitersToSync = customWaiters || waiters;
       const areasToSync = customAreas || areas;
+      const addonsToSync = customAddons || addons;
       const catList = Array.from(new Set([
         ...categories,
         ...itemsToSync.map(item => item.category)
@@ -455,6 +514,7 @@ export default function SetupScreen() {
           menuItems: itemsToSync,
           categories: catList,
           waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
+          addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
           syncCode: syncCode,
           restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
         }),
@@ -650,7 +710,7 @@ export default function SetupScreen() {
         <div className="flex justify-between items-center mb-4">
           <div>
             <div className="card-title">Table Configurations</div>
-            <div className="card-subtitle">Define layout, seating caps, and QR tags</div>
+            <div className="card-subtitle">Define layout and QR tags</div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="timeframe-tab active" style={{ height: 36, padding: '0 14px' }} onClick={() => { setShowAddTable(!showAddTable); setShowBulkTable(false); }}>
@@ -676,10 +736,6 @@ export default function SetupScreen() {
                   {areas.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="form-label">Seating Capacity</label>
-                <input type="number" min="1" className="form-control" value={newTableCapacity} onChange={(e) => setNewTableCapacity(e.target.value)} required />
-              </div>
               <button type="submit" className="btn-primary" style={{ height: '38px', padding: '0 16px' }}>Confirm Table</button>
             </div>
           </form>
@@ -698,10 +754,6 @@ export default function SetupScreen() {
                 <select className="form-control" value={bulkTableArea || (areas[0]?.name || "")} onChange={(e) => setBulkTableArea(e.target.value)}>
                   {areas.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="form-label">Seating Capacity</label>
-                <input type="number" min="1" className="form-control" value={bulkTableCapacity} onChange={(e) => setBulkTableCapacity(e.target.value)} required />
               </div>
               <button type="submit" className="btn-primary" style={{ height: '38px', padding: '0 16px', background: 'linear-gradient(135deg, #166534, #15803d)' }}>⚡ Auto-Generate</button>
             </div>
@@ -731,7 +783,6 @@ export default function SetupScreen() {
             <tr>
               <th>Table</th>
               <th>Area Location</th>
-              <th>Capacity</th>
               <th>Status</th>
               <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
@@ -761,7 +812,6 @@ export default function SetupScreen() {
                   />
                 </td>
                 <td style={{ color: '#64748b' }}>{t.area}</td>
-                <td style={{ color: '#334155' }}>{t.capacity} seats</td>
                 <td>
                   <span className={`badge ${t.status === 'Available' ? 'badge-green' : t.status === 'Reserved' ? 'badge-blue' : 'badge-amber'}`}>
                     {t.status}
@@ -896,6 +946,69 @@ export default function SetupScreen() {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add-ons Management Section */}
+      <div className="card mb-5">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <div className="card-title">🍟 Add-on & Extra Items Management</div>
+            <div className="card-subtitle">Manage extra add-ons (e.g. Extra Cheese, Mayo, Gravy) with custom prices for POS & Waiter apps.</div>
+          </div>
+          <button className="timeframe-tab active" onClick={() => setShowAddAddon(!showAddAddon)}>
+            {showAddAddon ? 'Cancel' : '+ Add New Add-on'}
+          </button>
+        </div>
+
+        {showAddAddon && (
+          <form onSubmit={handleSaveAddon} className="card mb-4" style={{ background: '#f8fafc', padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label className="form-label">Add-on Item Name</label>
+                <input type="text" placeholder="e.g. Extra Cheese" className="form-control" value={newAddonName} onChange={(e) => setNewAddonName(e.target.value)} required />
+              </div>
+              <div>
+                <label className="form-label">Extra Price (₹)</label>
+                <input type="number" step="0.5" min="0" placeholder="e.g. 30.00" className="form-control" value={newAddonPrice} onChange={(e) => setNewAddonPrice(e.target.value)} required />
+              </div>
+              <button type="submit" className="btn-primary" style={{ height: '38px', padding: '0 16px' }}>Save Add-on</button>
+            </div>
+          </form>
+        )}
+
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Add-on Name</th>
+              <th>Extra Price</th>
+              <th>Status</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {addons.map((addon) => (
+              <tr key={addon.id}>
+                <td style={{ fontWeight: '600', color: '#0f172a' }}>{addon.name}</td>
+                <td style={{ fontWeight: '700', color: '#16a34a' }}>+₹{parseFloat(addon.price || 0).toFixed(2)}</td>
+                <td>
+                  <span className={`badge ${addon.isAvailable !== false ? 'badge-green' : 'badge-red'}`}>
+                    {addon.isAvailable !== false ? 'Available' : 'Unavailable'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <button className="timeframe-tab" style={{ padding: '4px 8px' }} onClick={() => handleDeleteAddon(addon.id)}>
+                    🗑️ Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {addons.length === 0 && (
+              <tr>
+                <td colSpan="4" style={{ textAlign: 'center', color: '#94a3b8', padding: '16px' }}>No add-ons found. Click "+ Add New Add-on" to create one.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

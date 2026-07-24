@@ -307,14 +307,23 @@ export default function SalesScreen() {
                 <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B' }}>{h.slot}</p>
                 <p style={{ fontSize: 12, color: '#94a3b8' }}>{h.label}</p>
               </div>
-              <div style={{ flex: 1, height: 32, background: '#f1f5f9', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 32, background: '#f1f5f9', borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
                 <div style={{
-                  width: `${h.pct}%`, height: '100%', borderRadius: 10, display: 'flex', alignItems: 'center', paddingLeft: 12,
+                  width: `${Math.max(h.pct, 0)}%`, height: '100%', borderRadius: 10, display: 'flex', alignItems: 'center', paddingLeft: 12,
                   background: h.pct === 100 ? '#0B6B50' : h.pct >= 70 ? '#14B8A6' : '#EAF8F2',
                   transition: 'width 0.7s ease',
                 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: h.pct >= 40 ? '#fff' : '#64748b' }}>{h.orders} orders</span>
+                  {h.pct >= 30 && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>
+                      {h.orders} {h.orders === 1 ? 'order' : 'orders'}
+                    </span>
+                  )}
                 </div>
+                {h.pct < 30 && (
+                  <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, fontWeight: 600, color: '#64748b', pointerEvents: 'none' }}>
+                    {h.orders} {h.orders === 1 ? 'order' : 'orders'}
+                  </span>
+                )}
               </div>
               <div style={{ width: 48, textAlign: 'right', flexShrink: 0 }}>
                 <span style={{

@@ -393,7 +393,7 @@ export default function OverviewScreen() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#1E293B' }}>₹{dish.revenue.toLocaleString('en-IN')}</span>
-                      <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{dish.orders} orders</span>
+                      <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{dish.orders} {dish.orders === 1 ? 'order' : 'orders'}</span>
                     </div>
                   </div>
                   <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>

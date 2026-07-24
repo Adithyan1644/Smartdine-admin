@@ -226,9 +226,10 @@ export default function StaffScreen() {
   const [toastMsg, setToastMsg] = useState('');
   const [usingDemo, setUsingDemo] = useState(false);
 
-  // Get restaurantId from stored account
+  // Get restaurantId from stored account or setup payload
+  const setup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
   const account = JSON.parse(localStorage.getItem('smartdine_account') || 'null');
-  const restaurantId = account?.restaurantId || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  const restaurantId = setup?.restaurantId || account?.restaurantId || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
   const showToast = (msg) => {
     setToastMsg(msg);
@@ -239,7 +240,13 @@ export default function StaffScreen() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API_URL}/auth/waiters?restaurantId=${restaurantId}`, {
+      const setupObj = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
+      const syncCode = setupObj?.syncCode || account?.syncCode || '';
+      let url = `${API_URL}/auth/waiters?restaurantId=${restaurantId}&activeOnly=false`;
+      if (syncCode) {
+        url += `&syncCode=${syncCode}`;
+      }
+      const res = await fetch(url, {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
@@ -256,7 +263,7 @@ export default function StaffScreen() {
     } finally {
       setLoading(false);
     }
-  }, [restaurantId]);
+  }, [restaurantId, account?.syncCode]);
 
   useEffect(() => { loadStaff(); }, [loadStaff]);
 
@@ -298,18 +305,19 @@ export default function StaffScreen() {
   };
 
   const filtered = staff.filter(m => {
+    const isAct = m.isActive ?? m.active ?? true;
     const matchSearch =
       (m.fullName || '').toLowerCase().includes(search.toLowerCase()) ||
       (m.username || '').toLowerCase().includes(search.toLowerCase());
     const matchFilter =
       filter === 'all' ? true :
-      filter === 'active' ? m.isActive :
-      !m.isActive;
+      filter === 'active' ? isAct :
+      !isAct;
     return matchSearch && matchFilter;
   });
 
-  const activeCount = staff.filter(m => m.isActive).length;
-  const inactiveCount = staff.filter(m => !m.isActive).length;
+  const activeCount = staff.filter(m => (m.isActive ?? m.active ?? true)).length;
+  const inactiveCount = staff.filter(m => !(m.isActive ?? m.active ?? true)).length;
 
   return (
     <div className="page-content">
@@ -452,7 +460,7 @@ export default function StaffScreen() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Staff Member', 'Username', 'PIN', 'Role', 'Status', 'Actions'].map(h => (
+                {['Staff ID', 'Staff Member', 'Username', '4-Digit PIN', 'Role', 'Status', 'Actions'].map(h => (
                   <th key={h} style={{
                     padding: '12px 18px', textAlign: 'left',
                     fontSize: 11, fontWeight: 700, color: '#64748b',
@@ -465,6 +473,9 @@ export default function StaffScreen() {
               {filtered.map((member, i) => {
                 const name = member.fullName || member.username || 'Unknown';
                 const bg = avatarColor(name);
+                const staffIdCode = member.pin ? `ST-${member.pin}` : `ST-${String(member.id || i + 1).slice(-4).toUpperCase()}`;
+                const displayPin = member.pin || '—';
+
                 return (
                   <tr key={member.id} style={{
                     borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
@@ -473,6 +484,16 @@ export default function StaffScreen() {
                     onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
+                    {/* Staff ID */}
+                    <td style={{ padding: '14px 18px' }}>
+                      <span style={{
+                        background: '#f8fafc', border: '1px solid #cbd5e1',
+                        borderRadius: 6, padding: '4px 10px', fontSize: 12,
+                        fontWeight: 800, color: '#0f172a', fontFamily: 'monospace',
+                      }}>
+                        {staffIdCode}
+                      </span>
+                    </td>
                     {/* Avatar + Name */}
                     <td style={{ padding: '14px 18px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -484,7 +505,7 @@ export default function StaffScreen() {
                         }}>{getInitials(name)}</div>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{name}</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8' }}>ID: {String(member.id).slice(0, 8)}...</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{staffIdCode}</div>
                         </div>
                       </div>
                     </td>
@@ -495,11 +516,11 @@ export default function StaffScreen() {
                     {/* PIN */}
                     <td style={{ padding: '14px 18px' }}>
                       <span style={{
-                        background: '#f1f5f9', borderRadius: 6, padding: '3px 10px',
-                        fontSize: 13, fontWeight: 700, color: '#374151', fontFamily: 'monospace',
-                        letterSpacing: 4,
+                        background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8,
+                        padding: '4px 12px', fontSize: 13, fontWeight: 800, color: '#065f46',
+                        fontFamily: 'monospace', letterSpacing: 2, display: 'inline-flex', alignItems: 'center', gap: 4,
                       }}>
-                        {member.pin ? '••••' : '—'}
+                        🔑 {displayPin}
                       </span>
                     </td>
                     {/* Role */}

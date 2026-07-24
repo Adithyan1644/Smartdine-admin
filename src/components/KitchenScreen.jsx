@@ -28,7 +28,7 @@ const DonutTooltip = ({ active, payload }) => {
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <p style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>{d.name}</p>
-      <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{d.count} orders · {d.pct}%</p>
+      <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{d.count} {d.count === 1 ? 'order' : 'orders'} · {d.pct}%</p>
     </div>
   );
 };

@@ -342,16 +342,11 @@ export default function SetupWizard({ account, onComplete }) {
                       {zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label style={lbl}>Seats</label>
-                    <input style={inp} type="number" min="1" value={newT.capacity}
-                      onChange={e => setNewT(t => ({ ...t, capacity: e.target.value }))} onFocus={foc} onBlur={blr} />
-                  </div>
                   <button onClick={addTable} style={{ padding: '10px 14px', background: '#063D2F', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginTop: 4, height: 38 }}>+ Add Single</button>
                 </div>
 
                 {/* ── Bulk Auto-Generate ── */}
-                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 80px auto', gap: 10, alignItems: 'end' }}>
+                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
                   <div>
                     <label style={lbl}>Auto-Generate Count</label>
                     <input style={inp} type="number" min="1" placeholder="e.g. 10" value={bulkCount}
@@ -362,11 +357,6 @@ export default function SetupWizard({ account, onComplete }) {
                     <select style={{ ...inp, cursor: 'pointer' }} value={bulkArea || (zones[0]?.name || '')} onChange={e => setBulkArea(e.target.value)} onFocus={foc} onBlur={blr}>
                       {zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}
                     </select>
-                  </div>
-                  <div>
-                    <label style={lbl}>Seats</label>
-                    <input style={inp} type="number" min="1" value={bulkCapacity}
-                      onChange={e => setBulkCapacity(e.target.value)} onFocus={foc} onBlur={blr} />
                   </div>
                   <button onClick={handleBulkGenerate} style={{ padding: '10px 14px', background: 'linear-gradient(135deg, #166534, #15803d)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginTop: 4, height: 38 }}>⚡ Auto-Generate</button>
                 </div>
@@ -400,7 +390,6 @@ export default function SetupWizard({ account, onComplete }) {
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{t.area}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{t.capacity} seats</div>
                     </div>
                     <button onClick={() => setTables(ts => ts.filter(x => x.id !== t.id))}
                       style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, padding: '2px', fontFamily: 'Inter, sans-serif' }}>✕</button>
