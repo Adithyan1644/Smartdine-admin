@@ -505,10 +505,13 @@ export default function SetupScreen() {
       capacity: parseInt(newTableCapacity),
       status: "Available"
     };
-    setTables([...tables, newT]);
-    setAreas(areas.map(a => a.name === targetArea ? { ...a, tables: a.tables + 1 } : a));
+    const updatedTables = [...tables, newT];
+    const updatedAreas = areas.map(a => a.name === targetArea ? { ...a, tables: a.tables + 1 } : a);
+    setTables(updatedTables);
+    setAreas(updatedAreas);
     setNewTableNo("");
     setShowAddTable(false);
+    autoSyncConfig(null, updatedTables, null, updatedAreas);
   };
 
   const handleBulkGenerateTables = (e) => {
@@ -544,11 +547,15 @@ export default function SetupScreen() {
       });
     }
 
-    setTables([...tables, ...newGenerated]);
-    setAreas(areas.map(a => a.name === targetArea ? { ...a, tables: a.tables + qty } : a));
+    const updatedTables = [...tables, ...newGenerated];
+    const updatedAreas = areas.map(a => a.name === targetArea ? { ...a, tables: a.tables + qty } : a);
+    setTables(updatedTables);
+    setAreas(updatedAreas);
     setBulkTableCount("");
     setShowBulkTable(false);
+    autoSyncConfig(null, updatedTables, null, updatedAreas);
   };
+
 
   const autoSyncConfig = async (customMenuItems, customTables, customWaiters, customAreas, customAddons) => {
     try {
