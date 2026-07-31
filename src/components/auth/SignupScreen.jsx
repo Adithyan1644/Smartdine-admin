@@ -45,42 +45,53 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
           }
         }
       } catch (ignored) {}
-      let syncCode = 'SD-' + Math.floor(100000 + Math.random() * 900000);
-      let restaurantId = 'rest-' + Date.now();
+      let syncCode = null;
+      let restaurantId = null;
 
-      try {
-        // Both endpoint paths tried for compatibility with Spring Boot route prefixes
-        const endpoints = [
-          `${CLOUD_API_URL}/api/auth/register`,
-          `${CLOUD_API_URL}/auth/register`
-        ];
-        
-        for (const url of endpoints) {
-          try {
-            const response = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                restaurantName: form.restaurantName,
-                ownerName: form.ownerName,
-                phone: form.phone,
-                username: form.email.split('@')[0] || 'admin',
-                email: form.email,
-                password: form.password,
-                restaurantType: form.restaurantType,
-                isTest: isTest,
-              })
-            });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.syncCode || data.code) syncCode = data.syncCode || data.code;
-              if (data.restaurantId) restaurantId = data.restaurantId;
-              break;
+      // Both endpoint paths tried for compatibility with Spring Boot route prefixes
+      const endpoints = [
+        `${CLOUD_API_URL}/api/auth/register`,
+        `${CLOUD_API_URL}/auth/register`
+      ];
+
+      let lastErrorMsg = '';
+      for (const url of endpoints) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              restaurantName: form.restaurantName,
+              ownerName: form.ownerName,
+              phone: form.phone,
+              username: form.email.split('@')[0] || 'admin',
+              email: form.email,
+              password: form.password,
+              restaurantType: form.restaurantType,
+              isTest: isTest,
+            })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            syncCode = data.syncCode || data.code || data.billerSyncCode;
+            restaurantId = data.restaurantId || data.id;
+            if (data.token) {
+              localStorage.setItem('smartdine_jwt_token', data.token);
             }
-          } catch (ignored) {}
+            break;
+          } else {
+            const errData = await response.json().catch(() => ({}));
+            lastErrorMsg = errData.message || errData.error || `HTTP ${response.status}`;
+          }
+        } catch (netErr) {
+          lastErrorMsg = netErr.message || 'Network connection failed';
         }
-      } catch (e) {
-        console.warn('[SignupScreen] Remote API fallback activated:', e);
+      }
+
+      if (!syncCode) {
+        setError(`❌ Registration Failed: Could not register account on Google Cloud server (${lastErrorMsg || 'Server Unreachable'}). Please check your internet connection and try again.`);
+        setLoading(false);
+        return;
       }
 
       const account = { 
