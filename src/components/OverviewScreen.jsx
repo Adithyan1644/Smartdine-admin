@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSync } from '../context/SyncContext';
 import { API_URL } from '../config';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -95,50 +96,10 @@ const DonutTooltip = ({ active, payload }) => {
 export default function OverviewScreen() {
   const [filter, setFilter] = useState('today');
   const [chartTab, setChartTab] = useState('Daily');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  
+  const { analyticsData, isBillerConnected } = useSync();
 
-  React.useEffect(() => {
-    let active = true;
-
-    const fetchAnalytics = (showLoading = false) => {
-      if (showLoading) setLoading(true);
-      let syncCode = 'SD-28E792';
-      try {
-        const setup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
-        const account = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-        syncCode = setup.syncCode || account.syncCode || 'SD-28E792';
-      } catch (e) {
-        console.warn('Failed to parse setup configuration', e);
-      }
-
-      fetch(`${API_URL}/api/activation/analytics?filter=${filter}&code=${syncCode}`)
-        .then(res => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then(json => {
-          if (active) {
-            setData(json);
-            setLoading(false);
-          }
-        })
-        .catch(err => {
-          console.warn('[OverviewScreen] Failed to fetch analytics:', err);
-          if (active) {
-            setLoading(false);
-          }
-        });
-    };
-
-    fetchAnalytics(true);
-    const interval = setInterval(() => fetchAnalytics(false), 4000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [filter]);
+  const data = analyticsData;
 
   const activeData = (data && data.overview) ? data.overview : {
     kpis: {
@@ -186,9 +147,9 @@ export default function OverviewScreen() {
   };
 
   const kpis = {
-    sales: activeData.kpis?.sales?.value ?? 0,
-    expenses: activeData.kpis?.expenses?.value ?? 0,
-    profit: activeData.kpis?.profit?.value ?? 0,
+    sales: Math.round(activeData.kpis?.sales?.value ?? 0),
+    expenses: Math.round(activeData.kpis?.expenses?.value ?? 0),
+    profit: Math.round(activeData.kpis?.profit?.value ?? 0),
     orders: activeData.kpis?.orders?.value ?? 0,
   };
 
@@ -215,8 +176,10 @@ export default function OverviewScreen() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1E293B' }}>Restaurant Health Overview</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#0B6B50' }}>Live Data Active</span>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: isBillerConnected ? '#22c55e' : '#dc2626', display: 'inline-block' }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: isBillerConnected ? '#0B6B50' : '#dc2626' }}>
+              {isBillerConnected ? 'Live Data Active' : 'Disconnected (Showing Saved Data)'}
+            </span>
           </div>
         </div>
         <div className="filter-bar">

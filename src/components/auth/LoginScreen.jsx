@@ -16,33 +16,6 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
       try {
         let accounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
 
-        const defaultAccounts = [
-          {
-            id: 'ryxon-15',
-            email: 'adithyanvijayan1644@gmail.com',
-            phone: '9316971598',
-            restaurantName: 'Ryxon',
-            ownerName: 'Adithyan',
-            password: 'avk456',
-            syncCode: 'SD-612376',
-            setupCompleted: true
-          }
-        ];
-
-        defaultAccounts.forEach(def => {
-          const idx = accounts.findIndex(a => 
-            a.restaurantName?.toLowerCase() === def.restaurantName.toLowerCase() || 
-            a.email?.toLowerCase() === def.email.toLowerCase() ||
-            (a.syncCode && a.syncCode.toLowerCase() === def.syncCode.toLowerCase())
-          );
-          if (idx >= 0) {
-            accounts[idx] = { ...accounts[idx], ...def };
-          } else {
-            accounts.push(def);
-          }
-        });
-        localStorage.setItem('smartdine_accounts', JSON.stringify(accounts));
-
         const cleanedCred = credential.trim().toLowerCase();
         const numericCred = cleanedCred.replace(/\D/g, '');
 
@@ -54,13 +27,6 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
           return (emailMatch || nameMatch || phoneMatch) && a.password === password;
         });
 
-        // Fail-safe direct fallback for Ryxon account
-        if (!matchedAccount && password === 'avk456') {
-          if (cleanedCred === '9316971598' || cleanedCred === 'ryxon' || cleanedCred === 'adithyanvijayan1644@gmail.com' || numericCred === '9316971598') {
-            matchedAccount = defaultAccounts[0];
-          }
-        }
-
         if (matchedAccount) {
           // Clear old browser memory / cached setup from previous sessions
           localStorage.removeItem('smartdine_setup');
@@ -69,6 +35,10 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
           const syncCode = matchedAccount.syncCode || 'SD-28E792';
           localStorage.setItem('smartdine_active_email', matchedAccount.email);
           localStorage.setItem('smartdine_account', JSON.stringify(matchedAccount));
+          if (matchedAccount.restaurantName) {
+            localStorage.setItem('smartdine_restaurant_name', matchedAccount.restaurantName);
+          }
+          window.dispatchEvent(new Event('storage'));
 
           // Auto-fetch setup configuration from backend for syncCode
           fetch(`${API_URL}/api/activation/activate?code=${syncCode}`)

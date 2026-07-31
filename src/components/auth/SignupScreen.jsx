@@ -5,6 +5,7 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
     restaurantName: '', ownerName: '', phone: '', email: '',
     password: '', confirmPassword: '', restaurantType: 'Fine Dine',
   });
+  const [isTest, setIsTest] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -22,36 +23,19 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
     }
     setLoading(true); setError('');
 
-    // Check for duplicates in local browser accounts
-    const existingAccounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
     const cleanedName = form.restaurantName.trim().toLowerCase();
     const cleanedPhone = form.phone ? form.phone.replace(/\D/g, '') : '';
     const cleanedEmail = form.email.trim().toLowerCase();
 
-    for (const acc of existingAccounts) {
-      if (acc.restaurantName && acc.restaurantName.trim().toLowerCase() === cleanedName) {
-        setError(`⚠️ Restaurant Name "${form.restaurantName}" is already registered. Please choose a different restaurant name.`);
-        setLoading(false);
-        return;
-      }
-      if (cleanedPhone && acc.phone && acc.phone.replace(/\D/g, '') === cleanedPhone) {
-        setError(`⚠️ Mobile Number "${form.phone}" is already registered. Please use a different mobile number.`);
-        setLoading(false);
-        return;
-      }
-      if (acc.email && acc.email.trim().toLowerCase() === cleanedEmail) {
-        setError(`⚠️ Email address "${form.email}" is already registered. Please sign in instead.`);
-        setLoading(false);
-        return;
-      }
-    }
-
     try {
-      const { API_URL } = await import('../../config');
+      // CLOUD_API_URL routes to GCP App Engine:
+      //   isTest=true  → smartdine_dev (sandbox database)
+      //   isTest=false → smartdine     (production database)
+      const { CLOUD_API_URL } = await import('../../config');
 
       // Check remote backend database availability
       try {
-        const checkRes = await fetch(`${API_URL}/api/activation/check-availability?restaurantName=${encodeURIComponent(form.restaurantName)}&phone=${encodeURIComponent(form.phone || '')}&email=${encodeURIComponent(form.email)}`);
+        const checkRes = await fetch(`${CLOUD_API_URL}/api/activation/check-availability?restaurantName=${encodeURIComponent(form.restaurantName)}&phone=${encodeURIComponent(form.phone || '')}&email=${encodeURIComponent(form.email)}`);
         if (checkRes.ok) {
           const checkData = await checkRes.json();
           if (checkData.available === false) {
@@ -65,9 +49,10 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
       let restaurantId = 'rest-' + Date.now();
 
       try {
+        // Both endpoint paths tried for compatibility with Spring Boot route prefixes
         const endpoints = [
-          `${API_URL}/api/auth/register`,
-          `${API_URL}/auth/register`
+          `${CLOUD_API_URL}/api/auth/register`,
+          `${CLOUD_API_URL}/auth/register`
         ];
         
         for (const url of endpoints) {
@@ -77,9 +62,13 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 restaurantName: form.restaurantName,
+                ownerName: form.ownerName,
+                phone: form.phone,
                 username: form.email.split('@')[0] || 'admin',
                 email: form.email,
-                password: form.password
+                password: form.password,
+                restaurantType: form.restaurantType,
+                isTest: isTest,
               })
             });
             if (response.ok) {
@@ -95,7 +84,8 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
       }
 
       const account = { 
-        ...form, 
+        ...form,
+        isTest: isTest,
         createdAt: new Date().toISOString(), 
         syncCode: syncCode, 
         restaurantId: restaurantId,
@@ -107,6 +97,9 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
       localStorage.setItem('smartdine_accounts', JSON.stringify(accounts));
       localStorage.setItem('smartdine_active_email', form.email);
       localStorage.setItem('smartdine_account', JSON.stringify(account));
+      localStorage.setItem('smartdine_restaurant_name', form.restaurantName);
+      localStorage.setItem('smartdine_is_test', JSON.stringify(isTest));
+      window.dispatchEvent(new Event('storage'));
       
       onSignup(account);
     } catch (err) {
@@ -166,6 +159,37 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
                   {['Fine Dine', 'QSR', 'Café', 'Cloud Kitchen', 'Bakery', 'Hotel'].map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
+            </div>
+
+            {/* Account Type — determines sandbox vs. live database routing */}
+            <div>
+              <label style={lbl}>Account Type</label>
+              <select
+                id="account-type-select"
+                value={isTest ? 'true' : 'false'}
+                onChange={e => setIsTest(e.target.value === 'true')}
+                onFocus={foc}
+                onBlur={blr}
+                style={{
+                  ...inp,
+                  cursor: 'pointer',
+                  background: isTest
+                    ? 'linear-gradient(135deg, #fffbeb, #fef3c7)'
+                    : 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                  borderColor: isTest ? '#d97706' : '#16a34a',
+                  color: isTest ? '#92400e' : '#14532d',
+                  fontWeight: 600,
+                  transition: 'all 0.25s ease',
+                }}
+              >
+                <option value="false">🟢 Live Production Account</option>
+                <option value="true">🧪 Testing / Demo Account</option>
+              </select>
+              <p style={{ fontSize: 11, color: isTest ? '#b45309' : '#15803d', marginTop: 5, marginBottom: 0, fontWeight: 500 }}>
+                {isTest
+                  ? '⚠️ Data stored in the sandbox (smartdine_dev) database — not visible to live customers.'
+                  : '✅ Data stored in the production database — fully live and customer-facing.'}
+              </p>
             </div>
 
             <div>

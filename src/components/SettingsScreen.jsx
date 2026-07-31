@@ -1,4 +1,5 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
+import { useRestaurantName } from "../context/RestaurantNameContext";
 
 function Toggle({ checked, onChange }) {
   return React.createElement("button", {
@@ -19,11 +20,14 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function SettingsScreen() {
+  const { restaurantName, panelName, setRestaurantName, setPanelName } = useRestaurantName();
+
   const [profile, setProfile] = useState({
-    name: "Surabhi Restaurant", contact: "+91 98401 00000",
-    email: "surabhi@smartdine.in", address: "42, Green Park Road, Kochi, Kerala 682001",
+    name: restaurantName, contact: "+91 98401 00000",
+    email: "admin@smartdine.in", address: "42, Green Park Road, Kochi, Kerala 682001",
     currency: "INR (Rs.)", cgst: "9", sgst: "9", service: "5",
   });
+  const [panelNameInput, setPanelNameInput] = useState(panelName);
   const [hours, setHours] = useState({
     weekdayOpen: "09:00", weekdayClose: "23:00",
     weekendOpen: "08:00", weekendClose: "23:30",
@@ -40,9 +44,13 @@ export default function SettingsScreen() {
   const [saveMsg, setSaveMsg] = useState("");
 
   const handleSave = () => {
+    // Save restaurant name & panel name to context (→ localStorage → Sidebar & Header)
+    setRestaurantName(profile.name);
+    setPanelName(panelNameInput);
     setSaveMsg("Settings saved successfully!");
     setTimeout(() => setSaveMsg(""), 3000);
   };
+
 
   const exportData = () => {
     const blob = new Blob([JSON.stringify({ profile, hours, ops, privs }, null, 2)], { type: "application/json" });
@@ -109,9 +117,29 @@ export default function SettingsScreen() {
               React.createElement("label", { className: "form-label" }, f.label),
               React.createElement("input", { className: "form-control", type: f.type, value: profile[f.key], onChange: function(e) { setP(f.key)(e.target.value); } })
             );
-          })
+          }),
+          React.createElement("div", { style: { borderTop: "1px solid #e2e8f0", paddingTop: 14, marginTop: 4 } },
+            React.createElement("label", { className: "form-label", style: { fontWeight: 700, color: "#0f172a" } }, "🖥️ Admin Panel Name"),
+            React.createElement("div", { style: { fontSize: 11, color: "#94a3b8", marginBottom: 6 } }, "This name appears in the Sidebar and Header of this Admin Panel. Default: Smart Dine"),
+            React.createElement("div", { style: { display: "flex", gap: 8 } },
+              React.createElement("input", {
+                className: "form-control",
+                type: "text",
+                placeholder: "e.g. Smart Dine",
+                value: panelNameInput,
+                style: { flex: 1 },
+                onChange: function(e) { setPanelNameInput(e.target.value); }
+              }),
+              React.createElement("button", {
+                title: "Reset to default",
+                onClick: function() { setPanelNameInput("Smart Dine"); },
+                style: { background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, padding: "0 14px", fontSize: 12, fontWeight: 600, color: "#475569", cursor: "pointer", whiteSpace: "nowrap" }
+              }, "Reset Default")
+            )
+          )
         )
       ),
+
 
       React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 20 } },
         React.createElement("div", { className: "card" },

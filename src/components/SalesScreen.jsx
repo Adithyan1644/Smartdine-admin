@@ -14,13 +14,15 @@ import {
   peakHours, paymentMethods, salesInsights,
 } from '../data/salesData';
 
+import { useSync } from '../context/SyncContext';
+
 const trendData = {
   '7 Days': salesTrendDaily,
   Weekly: salesTrendWeekly,
   Monthly: salesTrendMonthly,
 };
 
-const fmt = (v) => v >= 100000 ? `₹${(v / 100000).toFixed(1)}L` : `₹${v.toLocaleString('en-IN')}`;
+const fmt = (v) => v >= 100000 ? `₹${(v / 100000).toFixed(1)}L` : `₹${Math.round(v).toLocaleString('en-IN')}`;
 const fmtTick = (v) => v >= 100000 ? `₹${(v / 100000).toFixed(0)}L` : v >= 1000 ? `₹${(v / 1000).toFixed(0)}K` : `₹${v}`;
 
 const ChartTooltip = ({ active, payload, label }) => {
@@ -53,57 +55,15 @@ const kpiCardDefs = [
 
 export default function SalesScreen() {
   const [trendTab, setTrendTab] = useState('7 Days');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  React.useEffect(() => {
-    let active = true;
-
-    const fetchSales = (showLoading = false) => {
-      if (showLoading) setLoading(true);
-      let syncCode = 'SD-28E792';
-      try {
-        const setup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
-        const account = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-        syncCode = setup.syncCode || account.syncCode || 'SD-28E792';
-      } catch (e) {
-        console.warn('Failed to parse setup configuration', e);
-      }
-
-      fetch(`${API_URL}/api/activation/analytics?filter=today&code=${syncCode}`)
-        .then(res => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then(json => {
-          if (active) {
-            setData(json);
-            setLoading(false);
-          }
-        })
-        .catch(err => {
-          console.warn('[SalesScreen] Failed to fetch sales analytics:', err);
-          if (active) {
-            setLoading(false);
-          }
-        });
-    };
-
-    fetchSales(true);
-    const interval = setInterval(() => fetchSales(false), 4000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
+  const { analyticsData } = useSync();
+  const data = analyticsData;
 
   const activeSales = {
     kpis: {
-      today: { value: data?.sales?.kpis?.today?.value ?? 0, change: data?.sales?.kpis?.today?.change ?? 0, positive: data?.sales?.kpis?.today?.positive ?? true },
-      yesterday: { value: data?.sales?.kpis?.yesterday?.value ?? 0, change: 0, positive: true },
-      weekly: { value: data?.sales?.kpis?.weekly?.value ?? 0, change: 0, positive: true },
-      monthly: { value: data?.sales?.kpis?.monthly?.value ?? 0, change: 0, positive: true }
+      today: { value: Math.round(data?.sales?.kpis?.today?.value ?? 0), change: data?.sales?.kpis?.today?.change ?? 0, positive: data?.sales?.kpis?.today?.positive ?? true },
+      yesterday: { value: Math.round(data?.sales?.kpis?.yesterday?.value ?? 0), change: 0, positive: true },
+      weekly: { value: Math.round(data?.sales?.kpis?.weekly?.value ?? 0), change: 0, positive: true },
+      monthly: { value: Math.round(data?.sales?.kpis?.monthly?.value ?? 0), change: 0, positive: true }
     },
     comparison: data?.sales?.comparison || [
       { label: "Today vs Yesterday", diff: 0, pct: 0, positive: true },

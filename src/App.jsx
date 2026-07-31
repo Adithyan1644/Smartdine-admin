@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { SyncProvider } from './context/SyncContext';
+import { RestaurantNameProvider } from './context/RestaurantNameContext';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import OverviewScreen from './components/OverviewScreen';
@@ -23,14 +25,15 @@ function App() {
     const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || 'null');
     const storedSession = JSON.parse(localStorage.getItem('smartdine_session') || 'null');
 
-    if (!storedAccount) {
-      setAppState('signup');
-    } else if (storedSession) {
-      // Already logged in → go straight to dashboard
+    // Compulsory Authentication Security Check:
+    // User MUST have an active session AND account to access dashboard.
+    if (storedAccount && storedSession) {
       setAccount(storedAccount);
       setAppState('dashboard');
-    } else {
+    } else if (storedAccount) {
       setAccount(storedAccount);
+      setAppState('login');
+    } else {
       setAppState('login');
     }
   }, []);
@@ -102,13 +105,17 @@ function App() {
 
   /* ── Dashboard ── */
   return (
-    <div className="app-container">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
-      <div className="main-content">
-        <Header activeTab={activeTab} />
-        {renderScreen()}
-      </div>
-    </div>
+    <RestaurantNameProvider>
+      <SyncProvider>
+        <div className="app-container">
+          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
+          <div className="main-content">
+            <Header activeTab={activeTab} />
+            {renderScreen()}
+          </div>
+        </div>
+      </SyncProvider>
+    </RestaurantNameProvider>
   );
 }
 

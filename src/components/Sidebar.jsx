@@ -3,6 +3,7 @@ import {
   LayoutDashboard, ShoppingBag, Receipt, ChefHat,
   UtensilsCrossed, UserCog, Settings, Leaf, FileText
 } from 'lucide-react';
+import { useRestaurantName } from '../context/RestaurantNameContext';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Overview',  tab: 'overview' },
@@ -15,6 +16,8 @@ const navItems = [
 ];
 
 export default function Sidebar({ activeTab, setActiveTab, onLogout }) {
+  const { restaurantName, panelName } = useRestaurantName();
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -22,8 +25,8 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }) {
           <Leaf size={16} color="#fff" />
         </div>
         <div className="sidebar-logo-text">
-          <span className="sidebar-logo-name">Surabhi</span>
-          <span className="sidebar-logo-sub">SmartDine</span>
+          <span className="sidebar-logo-name" title={restaurantName} style={{ maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{restaurantName}</span>
+          <span className="sidebar-logo-sub">{panelName}</span>
         </div>
       </div>
 
@@ -65,3 +68,4 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }) {
     </aside>
   );
 }
+

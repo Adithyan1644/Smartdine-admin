@@ -46,6 +46,16 @@ export default function SetupWizard({ account, onComplete }) {
   const [syncError, setSyncError] = useState('');
   const [synced, setSynced]       = useState(false);
 
+  /* ── Account Classification (Phase 1 — Environment Isolation) ── */
+  // Inherits account type chosen during initial account registration
+  const [isTest] = useState(() => {
+    if (account?.isTest !== undefined) return Boolean(account.isTest);
+    const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
+    if (storedAccount?.isTest !== undefined) return Boolean(storedAccount.isTest);
+    const storedIsTest = JSON.parse(localStorage.getItem('smartdine_is_test') || 'null');
+    return storedIsTest === true;
+  });
+
   /* ── Step 3 Bulk Generate ── */
   const [bulkCount, setBulkCount] = useState('');
   const [bulkCapacity, setBulkCapacity] = useState('4');
@@ -133,6 +143,7 @@ export default function SetupWizard({ account, onComplete }) {
           restaurantName: activeRestName,
           ownerName: activeOwnerName,
           ownerEmail: activeEmail,
+          isTest,
           areas: zones.map(z => ({ ...z, tables: tables.filter(t => t.area === z.name).length, active: true })),
           tables,
           menuItems,
@@ -160,8 +171,9 @@ export default function SetupWizard({ account, onComplete }) {
   };
 
   const openDashboard = () => {
-    const payload = { profile, zones, tables, menuItems, categories, taxes, syncCode, completedAt: new Date().toISOString() };
+    const payload = { profile, zones, tables, menuItems, categories, taxes, syncCode, isTest, completedAt: new Date().toISOString() };
     localStorage.setItem('smartdine_setup', JSON.stringify(payload));
+    localStorage.setItem('smartdine_is_test', JSON.stringify(isTest));
     
     try {
       const activeEmail = localStorage.getItem('smartdine_active_email');
@@ -273,6 +285,51 @@ export default function SetupWizard({ account, onComplete }) {
                 </div>
                 <div><label style={lbl}>City</label><input style={inp} type="text" placeholder="e.g. Bangalore, Mumbai" value={profile.city} onChange={e => updProf('city', e.target.value)} onFocus={foc} onBlur={blr} /></div>
                 <div><label style={lbl}>Full Address</label><textarea style={{ ...inp, resize: 'vertical', minHeight: 70 }} placeholder="Door No, Street, Area, City, Pincode" value={profile.address} onChange={e => updProf('address', e.target.value)} onFocus={foc} onBlur={blr} /></div>
+
+                {/* ── Account Environment Badge (Selected during Signup) ── */}
+                <div>
+                  <label style={{ ...lbl, marginBottom: 6 }}>
+                    Account Type & Environment
+                  </label>
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      background: isTest
+                        ? 'linear-gradient(135deg, #fffbeb, #fef3c7)'
+                        : 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                      border: `1.5px solid ${isTest ? '#f59e0b' : '#86efac'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: isTest ? '#92400e' : '#14532d' }}>
+                        {isTest ? '🧪 Testing / Demo Account' : '🟢 Live Production Account'}
+                      </div>
+                      <div style={{ fontSize: 11, color: isTest ? '#b45309' : '#15803d', marginTop: 2, fontWeight: 500 }}>
+                        {isTest
+                          ? 'Registered in smartdine_dev (Sandbox) database on GCP Cloud.'
+                          : 'Registered in smartdine (Production) database on GCP Cloud.'}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        background: isTest ? '#fef3c7' : '#dcfce7',
+                        color: isTest ? '#92400e' : '#14532d',
+                        border: `1px solid ${isTest ? '#d97706' : '#16a34a'}`,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {isTest ? 'DEV Sandbox' : 'PROD Live'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           )}

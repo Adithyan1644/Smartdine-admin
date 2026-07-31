@@ -44,9 +44,10 @@ const sanitizeMenuItem = (itm, idx) => {
 };
 
 export default function SetupScreen() {
-  // Load initial setup configuration from localStorage
+  // Load initial setup configuration
   const storedSetup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
-  const [syncCode, setSyncCode] = useState(() => storedSetup.syncCode || "SD-28E792");
+  const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
+  const [syncCode, setSyncCode] = useState(() => storedAccount.syncCode || storedSetup.syncCode || "SD-28E792");
 
   // 1. Areas State
   const [areas, setAreas] = useState(() => {
@@ -59,7 +60,7 @@ export default function SetupScreen() {
       }));
     }
     return [
-      { id: 1, name: "Ground Floor", tables: 0, active: true },
+      { id: 1, name: "Main Hall", tables: 0, active: true },
       { id: 2, name: "AC Room", tables: 0, active: true }
     ];
   });
@@ -91,8 +92,65 @@ export default function SetupScreen() {
     if (storedSetup.categories && storedSetup.categories.length > 0) {
       return storedSetup.categories;
     }
-    return ["Starters", "Main Course", "Beverages", "Desserts"];
+    return [];
   });
+
+  // Fetch live genuine data directly from backend Cloud SQL database on mount
+  React.useEffect(() => {
+    fetch(`${API_URL}/api/activation/config?code=${encodeURIComponent(syncCode)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && !data.error) {
+          if (Array.isArray(data.tables) && data.tables.length > 0) {
+            const loadedTables = data.tables.map((t, idx) => ({
+              id: t.id || idx + 1,
+              number: t.number,
+              area: t.area,
+              capacity: parseInt(t.capacity) || 4,
+              status: "Available"
+            }));
+            setTables(loadedTables);
+
+            // Re-derive areas from tables
+            const areaNames = Array.from(new Set(loadedTables.map(t => t.area)));
+            setAreas(areaNames.map((name, idx) => ({
+              id: idx + 1,
+              name: name,
+              tables: loadedTables.filter(t => t.area === name).length,
+              active: true
+            })));
+          }
+
+          if (Array.isArray(data.menuItems) && data.menuItems.length > 0) {
+            setMenuItems(data.menuItems.map((itm, idx) => sanitizeMenuItem(itm, idx)));
+          }
+
+          if (Array.isArray(data.categories) && data.categories.length > 0) {
+            setCategories(data.categories);
+          }
+
+          if (Array.isArray(data.waiters) && data.waiters.length > 0) {
+            setWaiters(data.waiters.map((w, idx) => ({
+              id: w.id || idx + 1,
+              name: w.name || w.fullName,
+              code: w.pin || w.code,
+              status: w.status || "Active",
+              lastLogin: w.lastLogin || "Never"
+            })));
+          }
+
+          if (Array.isArray(data.addons) && data.addons.length > 0) {
+            setAddons(data.addons.map((a, idx) => ({
+              id: a.id || idx + 1,
+              name: a.name,
+              price: parseFloat(a.price) || 0.0,
+              status: a.status || "Active"
+            })));
+          }
+        }
+      })
+      .catch(err => console.log("[SetupScreen] Backend sync note:", err.message));
+  }, [syncCode]);
 
   // 4. Waiters State
   const [waiters, setWaiters] = useState(() => {
@@ -361,7 +419,7 @@ export default function SetupScreen() {
         setSyncError("Failed to generate sync code: " + (data.error || "unknown error"));
       }
     } catch (e) {
-      setSyncError("Error: " + e.message + "\n\nMake sure the API Server is running on port 5000.");
+      setSyncError("Error: " + e.message + "\n\nMake sure the local SmartDine app (API Server on port 8080) is running.");
     } finally {
       setSyncing(false);
     }

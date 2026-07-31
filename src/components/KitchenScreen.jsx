@@ -1,26 +1,16 @@
 import React, { useState } from 'react';
-import { API_URL } from '../config';
+import { useSync } from '../context/SyncContext';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import {
-  ShoppingCart, Flame, CheckCircle2, Users, Package, Wifi,
-  ChefHat, Clock, AlertTriangle, Zap, ArrowRight, Lightbulb,
-  TrendingUp, TrendingDown, Timer,
+  ChefHat, Clock, AlertTriangle, CheckCircle2, Flame, RefreshCw,
+  Search, ShieldCheck, Zap, Activity, Filter, ArrowUpRight, TrendingDown
 } from 'lucide-react';
 import {
-  orderKpis, orderDistribution, kitchenKpis, kitchenStatus,
-  liveSummary, orderTimeline, prepTrendToday, prepTrend7Days,
-  prepTrendWeekly, prepTrendMonthly, delayedItems, operationalInsights,
-} from '../data/kitchenData';
-
-const trendMap = {
-  Today: prepTrendToday,
-  'Last 7 Days': prepTrend7Days,
-  Weekly: prepTrendWeekly,
-  Monthly: prepTrendMonthly,
-};
+  kdsOverallKpis, prepTimeTrends, stationWorkload, dishPrepSpeedAudit, kdsInsights
+} from '../data/kdsReportData';
 
 const DonutTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
@@ -28,7 +18,7 @@ const DonutTooltip = ({ active, payload }) => {
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <p style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>{d.name}</p>
-      <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{d.count} {d.count === 1 ? 'order' : 'orders'} · {d.pct}%</p>
+      <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{d.count} orders · {d.pct}% of workload</p>
     </div>
   );
 };
@@ -41,7 +31,7 @@ const PrepTooltip = ({ active, payload, label }) => {
       {payload.map(p => (
         <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
-          <span style={{ fontSize: 12, color: '#64748b' }}>{p.dataKey === 'today' ? 'Today' : 'Yesterday'}:</span>
+          <span style={{ fontSize: 12, color: '#64748b' }}>{p.dataKey === 'actual' ? 'Avg Prep Time' : 'Target SLA'}:</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#1E293B' }}>{p.value} min</span>
         </div>
       ))}
@@ -49,447 +39,290 @@ const PrepTooltip = ({ active, payload, label }) => {
   );
 };
 
-const statusConfig = {
-  Smooth:   { bg: '#EAF8F2', text: '#0B6B50', dot: '#22C55E' },
-  Busy:     { bg: '#FEF3C7', text: '#D97706', dot: '#F59E0B' },
-  Critical: { bg: '#FEE2E2', text: '#DC2626', dot: '#EF4444' },
-};
-
-const orderKpiCards = [
-  { label: 'Total Orders',   value: orderKpis.total,     Icon: ShoppingCart },
-  { label: 'Active Orders',  value: orderKpis.active,    Icon: Flame },
-  { label: 'Completed',      value: orderKpis.completed, Icon: CheckCircle2 },
-  { label: 'Dine-In',        value: orderKpis.dineIn,    Icon: Users },
-  { label: 'Takeaway',       value: orderKpis.takeaway,  Icon: Package },
-  { label: 'Online',         value: orderKpis.online,    Icon: Wifi },
-];
-
 export default function KitchenScreen() {
-  const [trendFilter, setTrendFilter] = useState('Today');
-  const [sortByDelay, setSortByDelay] = useState(false);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [timeFilter, setTimeFilter] = useState('Today');
+  const [stationFilter, setStationFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const { analyticsData } = useSync();
 
-  React.useEffect(() => {
-    let active = true;
+  const liveData = analyticsData?.overview?.kitchen || analyticsData?.kitchen || {};
 
-    const fetchKitchen = (showLoading = false) => {
-      if (showLoading) setLoading(true);
-      let syncCode = 'SD-28E792';
-      try {
-        const setup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
-        const account = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-        syncCode = setup.syncCode || account.syncCode || 'SD-28E792';
-      } catch (e) {
-        console.warn('Failed to parse setup configuration', e);
-      }
+  // Live or fallback metrics
+  const hasLiveData = Boolean(liveData && (liveData.orderKpis || liveData.overallKpis));
+  const totalKots = hasLiveData ? (liveData.orderKpis?.totalOrders?.value ?? 0) : kdsOverallKpis.totalKotsToday;
+  const completedKots = hasLiveData ? (liveData.orderKpis?.completed?.value ?? 0) : Math.round(totalKots * 0.94);
+  const activeKots = hasLiveData ? (liveData.orderKpis?.activeOrders?.value ?? 0) : Math.max(0, totalKots - completedKots);
+  const overallKpis = liveData?.overallKpis || {};
+  
+  const currentStationWorkload = (Array.isArray(liveData?.stationWorkload) && liveData.stationWorkload.length > 0) ? liveData.stationWorkload : stationWorkload;
+  const currentDishAudit = (Array.isArray(liveData?.dishPrepSpeedAudit) && liveData.dishPrepSpeedAudit.length > 0) ? liveData.dishPrepSpeedAudit : dishPrepSpeedAudit;
 
-      fetch(`${API_URL}/api/activation/analytics?filter=today&code=${syncCode}`)
-        .then(res => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then(json => {
-          if (active) {
-            setData(json);
-            setLoading(false);
-          }
-        })
-        .catch(err => {
-          console.warn('[KitchenScreen] Failed to fetch kitchen analytics:', err);
-          if (active) {
-            setLoading(false);
-          }
-        });
-    };
-
-    fetchKitchen(true);
-    const interval = setInterval(() => fetchKitchen(false), 4000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const activeKitchen = {
-    orderKpis: {
-      total: data?.kitchen?.orderKpis?.totalOrders?.value ?? orderKpis.total,
-      active: data?.kitchen?.orderKpis?.activeOrders?.value ?? orderKpis.active,
-      completed: data?.kitchen?.orderKpis?.completed?.value ?? orderKpis.completed,
-      dineIn: data?.kitchen?.orderKpis?.dineIn?.value ?? orderKpis.dineIn,
-      takeaway: data?.kitchen?.orderKpis?.takeaway?.value ?? orderKpis.takeaway,
-      online: data?.kitchen?.orderKpis?.online?.value ?? orderKpis.online,
-    },
-    orderDistribution: data?.kitchen?.orderDistribution || orderDistribution,
-    kitchenKpis: data?.kitchen?.kitchenKpis || kitchenKpis,
-    kitchenStatus: data?.kitchen?.kitchenStatus || kitchenStatus,
-    liveSummary: data?.kitchen?.liveSummary || liveSummary,
-    delayedItems: data?.kitchen?.delayedItems || delayedItems,
-    operationalInsights: data?.kitchen?.operationalInsights || operationalInsights
-  };
-
-  const kpis = activeKitchen.orderKpis;
-  const distribution = Array.isArray(activeKitchen.orderDistribution) ? activeKitchen.orderDistribution : orderDistribution;
-  const stats = activeKitchen.kitchenKpis;
-  const statusInfo = activeKitchen.kitchenStatus;
-  const summary = activeKitchen.liveSummary;
-  const delays = Array.isArray(activeKitchen.delayedItems) ? activeKitchen.delayedItems : delayedItems;
-  const currentInsights = Array.isArray(activeKitchen.operationalInsights) ? activeKitchen.operationalInsights : operationalInsights;
-
-  const status = statusConfig[statusInfo.status || 'Smooth'] || statusConfig.Smooth;
-  const trendData = trendMap[trendFilter] || prepTrendToday;
-
-  const sortedItems = sortByDelay
-    ? [...delays].sort((a, b) => b.avgPrepTime - a.avgPrepTime)
-    : [...delays].sort((a, b) => b.delays - a.delays);
-
-  const orderKpiCards = [
-    { label: 'Total Orders',   value: kpis.total,     Icon: ShoppingCart },
-    { label: 'Active Orders',  value: kpis.active,    Icon: Flame },
-    { label: 'Completed',      value: kpis.completed, Icon: CheckCircle2 },
-    { label: 'Dine-In',        value: kpis.dineIn || Math.round(kpis.total * 0.5),    Icon: Users },
-    { label: 'Takeaway',       value: kpis.takeaway || Math.round(kpis.total * 0.2),  Icon: Package },
-    { label: 'Online',         value: kpis.online || Math.round(kpis.total * 0.3),    Icon: Wifi },
+  const kpiCards = [
+    { label: 'Avg Prep Time', value: hasLiveData ? (overallKpis.avgPrepTime || '0.0 min') : kdsOverallKpis.avgPrepTime, sub: 'Target: 12.0 min', Icon: Clock, color: '#0B6B50', bg: '#EAF8F2' },
+    { label: 'SLA Compliance', value: hasLiveData ? (overallKpis.slaCompliance || '100%') : kdsOverallKpis.slaCompliance, sub: 'Target: 90%', Icon: ShieldCheck, color: '#22C55E', bg: '#DCFCE7' },
+    { label: 'Completed KOTs', value: completedKots, sub: `Active: ${activeKots}`, Icon: CheckCircle2, color: '#3B82F6', bg: '#DBEAFE' },
+    { label: 'Delayed Orders', value: hasLiveData ? (overallKpis.delayedOrders ?? 0) : kdsOverallKpis.delayedOrders, sub: 'Order Prep > 15m', Icon: AlertTriangle, color: '#EF4444', bg: '#FEE2E2' },
+    { label: 'Efficiency Score', value: hasLiveData ? (overallKpis.efficiencyScore || '100%') : kdsOverallKpis.efficiencyScore, sub: 'Optimal Performance', Icon: Zap, color: '#8B5CF6', bg: '#F3E8FF' },
+    { label: 'Kitchen Load', value: hasLiveData ? (overallKpis.kitchenLoad || '0%') : kdsOverallKpis.kitchenLoad, sub: 'Smooth Operation', Icon: Activity, color: '#F59E0B', bg: '#FEF3C7' },
   ];
+
+  const trendData = prepTimeTrends[timeFilter] || prepTimeTrends.Today;
+
+  const filteredDishes = currentDishAudit.filter(item => {
+    const matchesStation = stationFilter === 'All' || item.station === stationFilter;
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || (item.category && item.category.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesStation && matchesSearch;
+  });
 
   return (
     <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Page Title */}
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1E293B' }}>Orders & Kitchen Health</h1>
-        <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
-          Monitor restaurant operations, kitchen performance, order flow, and preparation efficiency in real time.
-        </p>
-      </div>
+      {/* Section 1: Page Title & Global Filter Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1E293B' }}>Kitchen Performance & KDS Reports</h1>
+            <span style={{ background: '#DCFCE7', color: '#15803D', fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22C55E' }} /> Live System Healthy
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+            Comprehensive KDS operational reports, preparation speeds, station workloads, and SLA compliance metrics.
+          </p>
+        </div>
 
-      {/* Section 1 — Orders Overview */}
-      <div>
-        <h2 style={{ fontSize: 14, fontWeight: 600, color: '#64748b', marginBottom: 12 }}>Orders Overview</h2>
-        <div className="grid-6">
-          {orderKpiCards.map(({ label, value, Icon }) => (
-            <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', color: '#94a3b8', lineHeight: 1.3 }}>{label}</p>
-                <div style={{ width: 28, height: 28, background: '#EAF8F2', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon size={14} color="#0B6B50" />
-                </div>
-              </div>
-              <p style={{ fontSize: 28, fontWeight: 700, color: '#1E293B', letterSpacing: '-0.5px' }}>{value}</p>
-            </div>
+        {/* Time Filter Pills */}
+        <div style={{ display: 'flex', alignItems: 'center', background: '#F1F5F9', borderRadius: 10, padding: 3 }}>
+          {['Today', 'Yesterday', 'Weekly', 'Monthly'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setTimeFilter(tab)}
+              style={{
+                border: 'none',
+                background: timeFilter === tab ? '#fff' : 'transparent',
+                color: timeFilter === tab ? '#0B6B50' : '#64748b',
+                fontWeight: timeFilter === tab ? 700 : 500,
+                fontSize: 12,
+                padding: '6px 14px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                boxShadow: timeFilter === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {tab}
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Section 2+3 — Order Distribution + Kitchen KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: 20 }}>
-        {/* Order Distribution Donut */}
-        <div className="card">
-          <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B', marginBottom: 4 }}>Order Distribution</h2>
-          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 20 }}>By channel today</p>
-          <div style={{ position: 'relative', height: 170, marginBottom: 20 }}>
+      {/* Section 2: KDS KPI Overview Grid */}
+      <div className="grid-6">
+        {kpiCards.map(({ label, value, sub, Icon, color, bg }) => (
+          <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#94a3b8' }}>{label}</p>
+              <div style={{ width: 32, height: 32, background: bg, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Icon size={16} color={color} />
+              </div>
+            </div>
+            <div>
+              <p style={{ fontSize: 26, fontWeight: 800, color: '#1E293B', letterSpacing: '-0.5px', lineHeight: 1.1 }}>{value}</p>
+              <p style={{ fontSize: 11, color: '#64748b', marginTop: 4, fontWeight: 500 }}>{sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Section 3: Recharts Visualizations (Prep Time Trend + Station Workload) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+        {/* Chart 1: Preparation Time vs SLA Benchmark */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>Prep Speed vs SLA Target</h2>
+              <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Average dish preparation time in minutes across peak hours</p>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#0B6B50', background: '#EAF8F2', padding: '4px 10px', borderRadius: 6 }}>
+              SLA Benchmark: 12 min
+            </span>
+          </div>
+
+          <div style={{ width: '100%', height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="hour" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} domain={[0, 20]} />
+                <RechartTooltip content={<PrepTooltip />} />
+                <Line type="monotone" dataKey="actual" stroke="#0B6B50" strokeWidth={3} dot={{ fill: '#0B6B50', r: 4 }} activeDot={{ r: 6 }} name="Avg Prep Time" />
+                <Line type="monotone" dataKey="target" stroke="#EF4444" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Target SLA" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Chart 2: Kitchen Station Workload Distribution */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>Station Workload Mix</h2>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Order volume distribution by kitchen station</p>
+          </div>
+
+          <div style={{ position: 'relative', height: 180 }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={distribution} cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={3} dataKey="count" stroke="none">
-                  {distribution.map((_, i) => <Cell key={i} fill={distribution[i].color || '#0B6B50'} />)}
+                <Pie data={currentStationWorkload} cx="50%" cy="50%" innerRadius={55} outerRadius={78} paddingAngle={3} dataKey="count" stroke="none">
+                  {currentStationWorkload.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color || '#0B6B50'} />
+                  ))}
                 </Pie>
                 <RechartTooltip content={<DonutTooltip />} />
               </PieChart>
             </ResponsiveContainer>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <p style={{ fontSize: 24, fontWeight: 700, color: '#1E293B' }}>{kpis.total}</p>
-              <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Total Orders</p>
+              <p style={{ fontSize: 22, fontWeight: 800, color: '#1E293B' }}>{totalKots}</p>
+              <p style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>Total KOTs</p>
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {distribution.map((item) => (
-              <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: item.color || '#0B6B50', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <p style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{item.name}</p>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>{item.pct}%</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#1E293B' }}>{item.count}</span>
-                    </div>
-                  </div>
-                  <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${item.pct}%`, height: '100%', background: item.color || '#0B6B50', borderRadius: 3 }} />
-                  </div>
-                </div>
+
+          {/* Legend Items */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {currentStationWorkload.map(item => (
+              <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color || '#0B6B50', flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: '#475569', fontWeight: 500, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#1E293B' }}>{item.pct}%</span>
               </div>
             ))}
           </div>
         </div>
-
-        {/* Kitchen KPIs + Pulse */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="grid-2" style={{ gap: 16 }}>
-            {/* Avg Prep Time */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', color: '#94a3b8' }}>Avg Prep Time</p>
-                <div style={{ width: 28, height: 28, background: '#EAF8F2', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Clock size={14} color="#0B6B50" />
-                </div>
-              </div>
-              <p style={{ fontSize: 28, fontWeight: 700, color: '#1E293B' }}>
-                {stats.avgPrepTime} <span style={{ fontSize: 16, fontWeight: 600, color: '#94a3b8' }}>min</span>
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <TrendingUp size={14} color="#ef4444" />
-                <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 500 }}>+{Math.max(0, stats.avgPrepTime - (stats.yesterdayPrepTime || 14))} min</span>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>vs yesterday ({stats.yesterdayPrepTime || 14} min)</span>
-              </div>
-            </div>
-
-            {/* Active KOTs */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', color: '#94a3b8' }}>Active KOTs</p>
-                <div style={{ width: 28, height: 28, background: '#EAF8F2', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Flame size={14} color="#0B6B50" />
-                </div>
-              </div>
-              <p style={{ fontSize: 28, fontWeight: 700, color: '#1E293B' }}>{stats.activeKots}</p>
-            </div>
-
-            {/* Ready Orders */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', color: '#94a3b8' }}>Ready Orders</p>
-                <div style={{ width: 28, height: 28, background: '#EAF8F2', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CheckCircle2 size={14} color="#0B6B50" />
-                </div>
-              </div>
-              <p style={{ fontSize: 28, fontWeight: 700, color: '#0B6B50' }}>{stats.readyOrders}</p>
-            </div>
-
-            {/* Delayed Orders */}
-            <div className="card" style={{
-              display: 'flex', flexDirection: 'column', gap: 12,
-              ...(stats.delayedOrders > 0 ? { background: '#fffbeb', border: '1px solid #fde68a' } : {}),
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px', color: '#94a3b8' }}>Delayed Orders</p>
-                <div style={{ width: 28, height: 28, background: stats.delayedOrders > 0 ? '#fef3c7' : '#EAF8F2', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <AlertTriangle size={14} color={stats.delayedOrders > 0 ? '#D97706' : '#0B6B50'} />
-                </div>
-              </div>
-              <p style={{ fontSize: 28, fontWeight: 700, color: stats.delayedOrders > 0 ? '#D97706' : '#0B6B50' }}>{stats.delayedOrders}</p>
-            </div>
-          </div>
-
-          {/* Kitchen Pulse */}
-          <div className="card" style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <div style={{ width: 28, height: 28, background: '#EAF8F2', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <ChefHat size={16} color="#0B6B50" />
-              </div>
-              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#1E293B' }}>Kitchen Pulse</h3>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderRadius: 12, marginBottom: 16, background: status.bg }}>
-              <span style={{ width: 12, height: 12, borderRadius: '50%', background: status.dot, flexShrink: 0 }} className="animate-pulse" />
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: status.text }}>Kitchen Status</p>
-                <p style={{ fontSize: 20, fontWeight: 700, color: status.text, marginTop: 2 }}>{statusInfo.status}</p>
-              </div>
-            </div>
-            <p style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>{statusInfo.message}</p>
-          </div>
-        </div>
       </div>
 
-      {/* Section 5 — Prep Time Trend */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      {/* Section 4: Dish Preparation Speed & SLA Bottleneck Audit Table */}
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B' }}>Preparation Time Trend</h2>
-            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Today vs Yesterday — average minutes per order</p>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>Dish Preparation & SLA Bottleneck Audit</h2>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Detailed dish-level prep times, SLA targets, and delay frequency</p>
           </div>
-          <div className="chart-tabs">
-            {['Today', 'Last 7 Days', 'Weekly', 'Monthly'].map(tab => (
-              <button key={tab} className={`chart-tab ${trendFilter === tab ? 'active' : ''}`} onClick={() => setTrendFilter(tab)}>{tab}</button>
-            ))}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-            <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={40} unit=" min" />
-            <RechartTooltip content={<PrepTooltip />} />
-            <Line type="monotone" dataKey="today" stroke="#0B6B50" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} name="Today" />
-            <Line type="monotone" dataKey="yesterday" stroke="#94A3B8" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 4 }} name="Yesterday" />
-          </LineChart>
-        </ResponsiveContainer>
-        <div style={{ display: 'flex', gap: 20, marginTop: 12, justifyContent: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 20, height: 2, background: '#0B6B50', borderRadius: 2, display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: '#64748b' }}>Today</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 20, height: 0, border: '1.5px dashed #94A3B8', display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: '#64748b' }}>Yesterday</span>
-          </div>
-        </div>
-      </div>
 
-      {/* Section 6 — Live Kitchen Summary + Order Timeline */}
-      <div className="grid-2">
-        {/* Live Summary */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <div style={{ width: 32, height: 32, background: '#EAF8F2', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Zap size={16} color="#0B6B50" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Search Input */}
+            <div style={{ position: 'relative', width: 200 }}>
+              <Search size={14} color="#94a3b8" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                placeholder="Search dish..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  paddingLeft: 30,
+                  paddingRight: 10,
+                  paddingTop: 6,
+                  paddingBottom: 6,
+                  fontSize: 12,
+                  borderRadius: 8,
+                  border: '1px solid #e2e8f0',
+                  outline: 'none'
+                }}
+              />
             </div>
-            <div>
-              <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B' }}>Live Kitchen Summary</h2>
-              <p style={{ fontSize: 12, color: '#94a3b8' }}>Current kitchen queue status</p>
+
+            {/* Station Filter Pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: 3, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              {['All', 'Main Kitchen', 'Tandoor & Grill', 'Bar & Beverages', 'Desserts & Pantry'].map(st => (
+                <button
+                  key={st}
+                  onClick={() => setStationFilter(st)}
+                  style={{
+                    border: 'none',
+                    background: stationFilter === st ? '#0B6B50' : 'transparent',
+                    color: stationFilter === st ? '#fff' : '#64748b',
+                    fontSize: 11,
+                    fontWeight: stationFilter === st ? 600 : 500,
+                    padding: '5px 10px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {st === 'All' ? 'All Stations' : st.split('&')[0].trim()}
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="grid-2" style={{ gap: 12 }}>
-            {[
-              { label: 'Orders Cooking',  value: summary.cooking,      Icon: Flame,        color: '#F59E0B', bg: '#FEF3C7' },
-              { label: 'Orders Waiting',  value: summary.waiting,      Icon: Timer,        color: '#3B82F6', bg: '#EFF6FF' },
-              { label: 'Orders Ready',    value: summary.ready,        Icon: CheckCircle2, color: '#0B6B50', bg: '#EAF8F2' },
-              { label: 'Avg Queue Time',  value: summary.avgQueueTime, Icon: Clock,        color: '#8B5CF6', bg: '#F5F3FF' },
-            ].map(({ label, value, Icon, color, bg }) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', borderRadius: 12, background: bg }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${color}22` }}>
-                  <Icon size={18} color={color} />
-                </div>
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: `${color}cc` }}>{label}</p>
-                  <p style={{ fontSize: 24, fontWeight: 700, color }}>{value}</p>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
 
-        {/* Order Timeline */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <div style={{ width: 32, height: 32, background: '#EAF8F2', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ArrowRight size={16} color="#0B6B50" />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B' }}>Live Order Timeline</h2>
-              <p style={{ fontSize: 12, color: '#94a3b8' }}>Orders flowing through the kitchen right now</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-            {orderTimeline.map((stage, i) => (
-              <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                <div style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700, color: '#fff', margin: '0 auto 8px', background: stage.color }}>
-                    {stage.count}
-                  </div>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: '#1E293B', lineHeight: 1.3, textAlign: 'center' }}>{stage.stage}</p>
-                </div>
-                {i < orderTimeline.length - 1 && <ArrowRight size={16} color="#d1d5db" style={{ flexShrink: 0, margin: '0 4px' }} />}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {orderTimeline.map((stage) => (
-              <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
-                <div style={{ flex: 1, height: 8, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.round((stage.count / kpis.total) * 100)}%`, height: '100%', background: stage.color, borderRadius: 4 }} />
-                </div>
-                <span style={{ fontSize: 12, color: '#64748b', width: 120, textAlign: 'right' }}>{stage.stage} ({stage.count})</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Section 7 — Most Delayed Items */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: '#FEF3C7', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <AlertTriangle size={16} color="#D97706" />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B' }}>Most Delayed Menu Items</h2>
-              <p style={{ fontSize: 12, color: '#94a3b8' }}>Items causing the most preparation delays today</p>
-            </div>
-          </div>
-          <button onClick={() => setSortByDelay(!sortByDelay)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 12, fontWeight: 500, color: '#64748b', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, cursor: 'pointer' }}>
-            <Timer size={14} />
-            Sort by {sortByDelay ? 'Delays' : 'Prep Time'}
-          </button>
-        </div>
+        {/* Table Content */}
         <div style={{ overflowX: 'auto' }}>
-          <table className="data-table">
+          <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr>
-                {['Rank', 'Item Name', 'Avg Prep Time', 'Delays Today', 'Status'].map(h => <th key={h}>{h}</th>)}
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Dish Name</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Station</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Avg Prep Time</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Target SLA</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Orders</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Delays</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>SLA Compliance</th>
+                <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Status</th>
               </tr>
             </thead>
             <tbody>
-              {sortedItems.map((item, idx) => (
-                <tr key={item.name}>
-                  <td>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, background: idx === 0 ? '#DC2626' : idx === 1 ? '#D97706' : '#94A3B8' }}>
-                      {idx + 1}
-                    </div>
-                  </td>
-                  <td style={{ fontWeight: 600, color: '#1E293B' }}>{item.name}</td>
-                  <td>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
-                      <Clock size={14} color="#94a3b8" /> {item.avgPrepTime} min
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{
-                      fontSize: 13, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
-                      background: item.delays >= 10 ? '#fee2e2' : item.delays >= 5 ? '#fef3c7' : '#f1f5f9',
-                      color: item.delays >= 10 ? '#dc2626' : item.delays >= 5 ? '#d97706' : '#64748b',
-                    }}>
-                      {item.delays} delays
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {item.avgPrepTime > 20
-                        ? <><TrendingUp size={14} color="#ef4444" /><span style={{ fontSize: 12, color: '#ef4444', fontWeight: 500 }}>High</span></>
-                        : <><TrendingDown size={14} color="#22c55e" /><span style={{ fontSize: 12, color: '#16a34a', fontWeight: 500 }}>Normal</span></>
-                      }
-                    </div>
+              {filteredDishes.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                    No matching dishes found for the selected station or search query.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredDishes.map(dish => {
+                  let badgeBg = '#DCFCE7';
+                  let badgeText = '#15803D';
+                  if (dish.status === 'Delayed') { badgeBg = '#FEE2E2'; badgeText = '#DC2626'; }
+                  else if (dish.status === 'Nearing SLA') { badgeBg = '#FEF3C7'; badgeText = '#D97706'; }
+
+                  return (
+                    <tr key={dish.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '12px 14px' }}>
+                        <p style={{ fontWeight: 600, color: '#1E293B', fontSize: 13 }}>{dish.name}</p>
+                        <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{dish.category}</p>
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#475569', fontWeight: 500 }}>{dish.station}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 700, color: dish.status === 'Delayed' ? '#DC2626' : '#1E293B' }}>{dish.avgPrepTime}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#64748b' }}>{dish.targetSla}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, fontWeight: 600, color: '#1E293B' }}>{dish.totalOrders}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, fontWeight: 600, color: dish.delays > 0 ? '#EF4444' : '#22C55E' }}>{dish.delays}</td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, fontWeight: 700, color: '#0B6B50' }}>{dish.slaScore}</td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{ background: badgeBg, color: badgeText, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 12, display: 'inline-block' }}>
+                          {dish.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Section 9 — Operational Insights */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <div style={{ width: 32, height: 32, background: '#EAF8F2', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Lightbulb size={16} color="#0B6B50" />
-          </div>
-          <div>
-            <h2 style={{ fontSize: 17, fontWeight: 600, color: '#1E293B' }}>Operational Insights</h2>
-            <p style={{ fontSize: 12, color: '#94a3b8' }}>Auto-generated kitchen & order observations</p>
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {currentInsights.map((insight, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '16px', background: '#FAFAFA', border: '1px solid #e2e8f0', borderRadius: 12 }}>
-              <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#EAF8F2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                <Lightbulb size={12} color="#0B6B50" />
-              </div>
-              <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{insight}</p>
+      {/* Section 5: Operational Insights Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {kdsInsights.map((insight, idx) => (
+          <div key={idx} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, borderLeft: `4px solid ${insight.priority === 'High' ? '#EF4444' : insight.priority === 'Medium' ? '#F59E0B' : '#3B82F6'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: insight.priority === 'High' ? '#EF4444' : insight.priority === 'Medium' ? '#D97706' : '#3B82F6', background: insight.priority === 'High' ? '#FEE2E2' : insight.priority === 'Medium' ? '#FEF3C7' : '#DBEAFE', padding: '2px 6px', borderRadius: 4 }}>
+                {insight.priority} Priority
+              </span>
+              <ChefHat size={14} color="#94a3b8" />
             </div>
-          ))}
-        </div>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{insight.title}</h3>
+            <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.5 }}>{insight.desc}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
