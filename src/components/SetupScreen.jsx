@@ -433,10 +433,6 @@ export default function SetupScreen() {
   const [menuSearch, setMenuSearch] = useState("");
   const [menuFilter, setMenuFilter] = useState("all");
 
-  // Toggle Area active status
-  const toggleAreaStatus = (id) => {
-    setAreas(areas.map(a => a.id === id ? { ...a, active: !a.active } : a));
-  };
 
   // Add & Manage Dining Areas dynamically with Auto-Sync
   const [showAddArea, setShowAddArea] = useState(false);
