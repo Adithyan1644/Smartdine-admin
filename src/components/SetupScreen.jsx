@@ -438,11 +438,14 @@ export default function SetupScreen() {
     setAreas(areas.map(a => a.id === id ? { ...a, active: !a.active } : a));
   };
 
-  // Add Area dynamically
-  const handleAddArea = () => {
-    const name = window.prompt("Enter new Area/Zone Name (e.g. Ground Floor, AC Room):");
-    if (!name || !name.trim()) return;
-    const trimmed = name.trim();
+  // Add & Manage Dining Areas dynamically with Auto-Sync
+  const [showAddArea, setShowAddArea] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
+
+  const handleAddAreaSubmit = (e) => {
+    e.preventDefault();
+    if (!newAreaName || !newAreaName.trim()) return;
+    const trimmed = newAreaName.trim();
     if (areas.some(a => a.name.toLowerCase() === trimmed.toLowerCase())) {
       alert("Area already exists!");
       return;
@@ -453,7 +456,25 @@ export default function SetupScreen() {
       tables: 0,
       active: true
     };
-    setAreas([...areas, newA]);
+    const updatedAreas = [...areas, newA];
+    setAreas(updatedAreas);
+    setNewAreaName("");
+    setShowAddArea(false);
+    autoSyncConfig(null, null, null, updatedAreas);
+  };
+
+  const handleDeleteArea = (areaId, areaName) => {
+    if (window.confirm(`Are you sure you want to delete Area "${areaName}"?`)) {
+      const updatedAreas = areas.filter(a => a.id !== areaId);
+      setAreas(updatedAreas);
+      autoSyncConfig(null, null, null, updatedAreas);
+    }
+  };
+
+  const toggleAreaStatus = (areaId) => {
+    const updatedAreas = areas.map(a => a.id === areaId ? { ...a, active: !a.active } : a);
+    setAreas(updatedAreas);
+    autoSyncConfig(null, null, null, updatedAreas);
   };
 
   // Toggle Menu item status
@@ -741,10 +762,33 @@ export default function SetupScreen() {
             <div className="card-title">Area Management</div>
             <div className="card-subtitle">Define different dining sections in the restaurant</div>
           </div>
-          <button className="timeframe-tab active" style={{ height: 36, padding: '0 14px' }} onClick={handleAddArea}>
-            + Add Area
+          <button className="timeframe-tab active" style={{ height: 36, padding: '0 14px' }} onClick={() => setShowAddArea(!showAddArea)}>
+            {showAddArea ? 'Cancel' : '+ Add Area'}
           </button>
         </div>
+
+        {/* Add Area Mini-Form */}
+        {showAddArea && (
+          <form onSubmit={handleAddAreaSubmit} className="card mb-4" style={{ background: '#f8fafc', padding: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label className="form-label">Area / Zone Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. AC Hall, Rooftop, Garden, VIP Lounge"
+                  className="form-control"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  required
+                />
+              </div>
+              <button type="submit" className="btn-primary" style={{ height: '38px', padding: '0 18px' }}>
+                Confirm Area
+              </button>
+            </div>
+          </form>
+        )}
+
         <div className="grid-4">
           {areas.map((area) => (
             <div key={area.id} className="card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', borderLeft: area.active ? '4px solid #166534' : '4px solid #64748b' }}>
@@ -754,9 +798,17 @@ export default function SetupScreen() {
                   {area.active ? 'Active' : 'Inactive'}
                 </span>
               </div>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>{area.tables} Tables configured</span>
+              <span style={{ fontSize: '13px', color: '#64748b' }}>
+                {tables.filter(t => t.area === area.name).length || area.tables || 0} Tables configured
+              </span>
               <div className="flex gap-2" style={{ marginTop: '10px' }}>
-                <button className="timeframe-tab" style={{ flex: 1, padding: '6px 0' }}>Edit</button>
+                <button
+                  className="timeframe-tab"
+                  style={{ flex: 1, padding: '6px 0', color: '#dc2626' }}
+                  onClick={() => handleDeleteArea(area.id, area.name)}
+                >
+                  🗑️ Delete
+                </button>
                 <button
                   className="timeframe-tab active"
                   style={{ flex: 1, padding: '6px 0', background: area.active ? '#94a3b8' : '#166534', borderColor: area.active ? '#94a3b8' : '#166534' }}
@@ -769,6 +821,7 @@ export default function SetupScreen() {
           ))}
         </div>
       </div>
+
 
       {/* Table Management Section */}
       <div className="card mb-5">
