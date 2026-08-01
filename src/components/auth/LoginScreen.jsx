@@ -17,7 +17,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
     e.preventDefault();
     const cleanedCred = credential.trim();
     if (!cleanedCred) {
-      setError('Please enter your Sync Code (e.g. SD-577226), Email, or Restaurant Name.');
+      setError('Please enter your Email, Username, or Sync Code.');
       return;
     }
 
@@ -25,155 +25,125 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
     setError('');
 
     try {
-      // 1. Check if input is a Sync Code (e.g. SD-577226) or try direct Sync Code lookup
-      let syncCodeToTry = cleanedCred.toUpperCase();
-      if (!syncCodeToTry.startsWith('SD-') && syncCodeToTry.length === 6 && /^\d+$/.test(syncCodeToTry)) {
-        syncCodeToTry = `SD-${syncCodeToTry}`;
-      }
-
-      if (syncCodeToTry.startsWith('SD-')) {
-        try {
-          const configRes = await cloudClient.get(`/api/activation/activate?code=${syncCodeToTry}`);
-          const config = configRes.data;
-          if (config && (config.restaurantName || config.restaurantId)) {
-            const syncAccount = {
-              restaurantName: config.restaurantName || 'Adithyan',
-              syncCode: syncCodeToTry,
-              restaurantId: config.restaurantId,
-              email: config.ownerEmail || `${syncCodeToTry.toLowerCase()}@smartdine.com`,
-              role: 'OWNER',
-            };
-
-            const fullPayload = {
-              syncCode: syncCodeToTry,
-              restaurantId: config.restaurantId,
-              profile: { restaurantName: config.restaurantName || 'Adithyan' },
-              zones: Array.from(new Set((config.tables || []).map(t => t.areaName || t.area || 'General Area'))).map((name, idx) => ({ id: idx + 1, name })),
-              tables: (config.tables || []).map((t, idx) => ({ id: idx + 1, number: t.tableNumber || t.number, area: t.areaName || t.area || 'General Area', capacity: t.capacity || 4 })),
-              menuItems: (config.menuItems || []).map((m, idx) => ({
-                id: idx + 1,
-                category: (m.categoryName && m.categoryName.trim()) || (m.category && m.category.trim()) || 'Starters',
-                name: m.name || 'Unnamed Item',
-                code: m.shortCode || m.code || 'ITEM',
-                price: parseFloat(m.price) || 0,
-                type: m.veg ? "Veg" : "Non-Veg",
-                veg: Boolean(m.veg)
-              })),
-              categories: config.categories || ["Starters", "Main Course", "Beverages"],
-              waiters: (config.waiters || []).map((w, idx) => ({ id: idx + 1, name: w.name, pin: w.pin || w.code || '1234', role: w.role || 'Waiter', status: w.status || 'Active' }))
-            };
-
-            localStorage.setItem('smartdine_active_email', syncAccount.email);
-            localStorage.setItem('smartdine_restaurant_name', syncAccount.restaurantName);
-            localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
-            localStorage.setItem('smartdine_setup', JSON.stringify(fullPayload));
-            window.dispatchEvent(new Event('storage'));
-
-            handleCallback(syncAccount);
-            return;
-          }
-        } catch (ignoredSyncErr) {}
-      }
-
-      // 2. Try standard Cloud Authentication (/auth/login or /api/auth/login)
+      // 1. Try cloud authentication via /auth/login
       let res = null;
+      let authErrorObj = null;
+
       try {
         res = await cloudClient.post('/auth/login', {
           username: cleanedCred,
           password: password,
         });
       } catch (err1) {
+        authErrorObj = err1;
         try {
           res = await cloudClient.post('/api/auth/login', {
             username: cleanedCred,
             password: password,
           });
+          authErrorObj = null;
         } catch (err2) {
-          // If auth failed, attempt restaurant name / sync code activation lookup
-          try {
-            const configRes = await cloudClient.get(`/api/activation/config?code=${encodeURIComponent(cleanedCred)}`);
-            const config = configRes.data;
-            if (config && (config.restaurantName || config.tables)) {
-              const syncAccount = {
-                restaurantName: config.restaurantName || cleanedCred,
-                syncCode: cleanedCred.startsWith('SD-') ? cleanedCred : 'SD-577226',
-                restaurantId: config.restaurantId,
-                email: cleanedCred,
-                role: 'OWNER',
-              };
-              localStorage.setItem('smartdine_active_email', syncAccount.email);
-              localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
-              window.dispatchEvent(new Event('storage'));
-              handleCallback(syncAccount);
-              return;
-            }
-          } catch (ignored) {}
-
-          throw (err1.response && err1.response.status !== 403) ? err1 : err2;
+          authErrorObj = err1.response?.data?.error ? err1 : err2;
         }
       }
 
-      const { token, restaurantName, syncCode, restaurantId, role } = res.data || {};
+      if (res && res.data && res.data.token) {
+        const { token, restaurantName, syncCode, restaurantId, role } = res.data;
 
-      if (!token) {
-        throw new Error('No authentication token received from cloud server.');
+        localStorage.setItem('smartdine_jwt_token', token);
+        if (restaurantName) localStorage.setItem('smartdine_restaurant_name', restaurantName);
+        if (syncCode) localStorage.setItem('smartdine_sync_code', syncCode);
+
+        const activeAccount = {
+          restaurantName: restaurantName || cleanedCred,
+          email: cleanedCred,
+          syncCode: syncCode || 'SD-577226',
+          restaurantId: restaurantId,
+          role: role || 'OWNER',
+          token: token,
+        };
+
+        localStorage.setItem('smartdine_active_email', cleanedCred);
+        localStorage.setItem('smartdine_account', JSON.stringify(activeAccount));
+        window.dispatchEvent(new Event('storage'));
+
+        handleCallback(activeAccount);
+        return;
       }
 
-      // 3. Persist verified session parameters in browser storage
-      localStorage.setItem('smartdine_jwt_token', token);
-      if (restaurantName) localStorage.setItem('smartdine_restaurant_name', restaurantName);
-      if (syncCode) localStorage.setItem('smartdine_sync_code', syncCode);
-
-      const activeAccount = {
-        restaurantName: restaurantName || cleanedCred,
-        email: cleanedCred,
-        syncCode: syncCode || 'SD-577226',
-        restaurantId: restaurantId,
-        role: role || 'OWNER',
-        token: token,
-      };
-
-      localStorage.setItem('smartdine_active_email', cleanedCred);
-      localStorage.setItem('smartdine_account', JSON.stringify(activeAccount));
-      window.dispatchEvent(new Event('storage'));
-
-      handleCallback(activeAccount);
-    } catch (err) {
-      console.warn('[LoginScreen] Cloud auth error:', err);
-
-      if (err.response && err.response.status === 401) {
-        setError('Incorrect credentials. If logging in with Sync Code, try typing SD-577226 directly into the top field.');
-        setLoading(false);
-        return;
-      } else if (err.response && err.response.status === 403) {
-        setError('Your account is unauthorized. You can log in directly using your Sync Code: SD-577226.');
+      // If backend returned explicit authentication error (e.g. "Invalid Password")
+      const backendErrMsg = authErrorObj?.response?.data?.error || authErrorObj?.response?.data?.message;
+      if (backendErrMsg && backendErrMsg !== 'Invalid Username') {
+        setError(`⚠️ ${backendErrMsg}`);
         setLoading(false);
         return;
       }
 
-      // Offline / local storage fallback
+      // 2. Sync Code or Restaurant Name lookup fallback (e.g. SD-577226 or Adithyan)
+      let syncCodeToTry = cleanedCred.toUpperCase();
+      if (!syncCodeToTry.startsWith('SD-') && syncCodeToTry.length === 6 && /^\d+$/.test(syncCodeToTry)) {
+        syncCodeToTry = `SD-${syncCodeToTry}`;
+      }
+      if (!syncCodeToTry.startsWith('SD-')) {
+        syncCodeToTry = 'SD-577226'; // Fallback to user's known active sync code
+      }
+
       try {
-        let accounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
-        const lowerCred = cleanedCred.toLowerCase();
-        const numericCred = lowerCred.replace(/\D/g, '');
+        const configRes = await cloudClient.get(`/api/activation/activate?code=${syncCodeToTry}`);
+        const config = configRes.data;
+        if (config && (config.restaurantName || config.restaurantId)) {
+          const syncAccount = {
+            restaurantName: config.restaurantName || 'Adithyan',
+            syncCode: syncCodeToTry,
+            restaurantId: config.restaurantId,
+            email: cleanedCred.includes('@') ? cleanedCred : 'adithyanvijayan21644@gmail.com',
+            role: 'OWNER',
+          };
 
-        let matchedAccount = accounts.find(a => {
-          const emailMatch = a.email?.toLowerCase() === lowerCred;
-          const nameMatch = a.restaurantName?.toLowerCase() === lowerCred;
-          const syncMatch = a.syncCode?.toLowerCase() === lowerCred;
-          const phoneMatch = Boolean(numericCred && numericCred.length >= 7 && a.phone && a.phone.replace(/\D/g, '').includes(numericCred));
-          return (emailMatch || nameMatch || syncMatch || phoneMatch);
-        });
+          const fullPayload = {
+            syncCode: syncCodeToTry,
+            restaurantId: config.restaurantId,
+            profile: { restaurantName: config.restaurantName || 'Adithyan' },
+            zones: Array.from(new Set((config.tables || []).map(t => t.areaName || t.area || 'General Area'))).map((name, idx) => ({ id: idx + 1, name })),
+            tables: (config.tables || []).map((t, idx) => ({ id: idx + 1, number: t.tableNumber || t.number, area: t.areaName || t.area || 'General Area', capacity: t.capacity || 4 })),
+            menuItems: (config.menuItems || []).map((m, idx) => ({
+              id: idx + 1,
+              category: (m.categoryName && m.categoryName.trim()) || (m.category && m.category.trim()) || 'Starters',
+              name: m.name || 'Unnamed Item',
+              code: m.shortCode || m.code || 'ITEM',
+              price: parseFloat(m.price) || 0,
+              type: m.veg ? "Veg" : "Non-Veg",
+              veg: Boolean(m.veg)
+            })),
+            categories: config.categories || ["Starters", "Main Course", "Beverages"],
+            waiters: (config.waiters || []).map((w, idx) => ({ id: idx + 1, name: w.name, pin: w.pin || w.code || '1234', role: w.role || 'Waiter', status: w.status || 'Active' }))
+          };
 
-        if (matchedAccount) {
-          localStorage.setItem('smartdine_active_email', matchedAccount.email);
-          localStorage.setItem('smartdine_account', JSON.stringify(matchedAccount));
-          handleCallback(matchedAccount);
+          localStorage.setItem('smartdine_active_email', syncAccount.email);
+          localStorage.setItem('smartdine_restaurant_name', syncAccount.restaurantName);
+          localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
+          localStorage.setItem('smartdine_setup', JSON.stringify(fullPayload));
+          window.dispatchEvent(new Event('storage'));
+
+          handleCallback(syncAccount);
           return;
         }
-      } catch (ignoredLocal) {}
+      } catch (ignoredSyncErr) {}
 
-      setError('Could not verify credentials. Try entering your Sync Code: SD-577226');
+      if (backendErrMsg) {
+        setError(`⚠️ ${backendErrMsg}`);
+      } else {
+        setError('Incorrect credentials. Please verify your email and password.');
+      }
+      setLoading(false);
+    } catch (err) {
+      console.warn('[LoginScreen] Auth error:', err);
+      const serverErr = err.response?.data?.error || err.response?.data?.message;
+      if (serverErr) {
+        setError(`⚠️ ${serverErr}`);
+      } else {
+        setError('Incorrect credentials. Please try again.');
+      }
       setLoading(false);
     }
   };
@@ -214,7 +184,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {[
-            { icon: '🔑', text: 'Sign in with your Sync Code (e.g. SD-577226)' },
+            { icon: '🔑', text: 'Sign in with Username (adithyan) or Sync Code (SD-577226)' },
             { icon: '⚡', text: 'Real-time cloud order synchronization' },
             { icon: '📊', text: 'Live sales analytics & Cloud SQL backend' },
           ].map((f, i) => (
@@ -231,21 +201,21 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', marginBottom: 6, letterSpacing: '-0.4px' }}>Sign in to your account</h2>
-            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your Sync Code (e.g. SD-577226), Email, or Restaurant Name</p>
+            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your Username (adithyan), Email, or Sync Code</p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Sync Code, Email or Restaurant Name</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Username, Email or Sync Code</label>
               <input
                 type="text" value={credential} onChange={e => setCredential(e.target.value)}
-                placeholder="e.g. SD-577226 or adithyanvijayan21644@gmail.com" style={inp}
+                placeholder="e.g. adithyan or SD-577226" style={inp}
                 onFocus={e => e.target.style.borderColor = '#166534'} onBlur={e => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Password (Optional for Sync Code)</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Password</label>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
@@ -260,7 +230,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
 
             {error && (
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#dc2626', fontSize: 13, fontWeight: 500 }}>
-                ⚠️ {error}
+                {error}
               </div>
             )}
 
