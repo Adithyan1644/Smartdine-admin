@@ -32,6 +32,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
       try {
         res = await cloudClient.post('/auth/login', {
           username: cleanedCred,
+          restaurantName: cleanedCred,
           password: password,
         });
       } catch (err1) {
@@ -39,6 +40,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         try {
           res = await cloudClient.post('/api/auth/login', {
             username: cleanedCred,
+            restaurantName: cleanedCred,
             password: password,
           });
           authErrorObj = null;
