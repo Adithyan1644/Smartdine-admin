@@ -33,6 +33,8 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         res = await cloudClient.post('/auth/login', {
           username: cleanedCred,
           restaurantName: cleanedCred,
+          phone: cleanedCred,
+          email: cleanedCred,
           password: password,
         });
       } catch (err1) {
@@ -41,6 +43,8 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
           res = await cloudClient.post('/api/auth/login', {
             username: cleanedCred,
             restaurantName: cleanedCred,
+            phone: cleanedCred,
+            email: cleanedCred,
             password: password,
           });
           authErrorObj = null;
@@ -59,7 +63,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         const activeAccount = {
           restaurantName: restaurantName || cleanedCred,
           email: cleanedCred,
-          syncCode: syncCode || 'SD-577226',
+          syncCode: syncCode || '',
           restaurantId: restaurantId,
           role: role || 'OWNER',
           token: token,
@@ -73,79 +77,47 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         return;
       }
 
-      // If backend returned explicit authentication error (e.g. "Invalid Password")
+      // If backend returned explicit authentication error
       const backendErrMsg = authErrorObj?.response?.data?.error || authErrorObj?.response?.data?.message;
-      if (backendErrMsg && backendErrMsg !== 'Invalid Username') {
+      if (backendErrMsg) {
         setError(`⚠️ ${backendErrMsg}`);
         setLoading(false);
         return;
       }
 
-      // 2. Sync Code or Restaurant Name lookup fallback (e.g. SD-577226 or Adithyan)
+      // 2. Direct Sync Code lookup fallback (e.g. SD-620495 or 620495)
       let syncCodeToTry = cleanedCred.toUpperCase();
       if (!syncCodeToTry.startsWith('SD-') && syncCodeToTry.length === 6 && /^\d+$/.test(syncCodeToTry)) {
         syncCodeToTry = `SD-${syncCodeToTry}`;
       }
-      if (!syncCodeToTry.startsWith('SD-')) {
-        syncCodeToTry = 'SD-577226'; // Fallback to user's known active sync code
+
+      if (syncCodeToTry.startsWith('SD-')) {
+        try {
+          const configRes = await cloudClient.get(`/api/activation/activate?code=${syncCodeToTry}`);
+          const config = configRes.data;
+          if (config && (config.restaurantName || config.restaurantId)) {
+            const syncAccount = {
+              restaurantName: config.restaurantName || 'Restaurant',
+              syncCode: syncCodeToTry,
+              restaurantId: config.restaurantId,
+              email: cleanedCred,
+              role: 'OWNER',
+            };
+
+            localStorage.setItem('smartdine_sync_code', syncCodeToTry);
+            localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
+            window.dispatchEvent(new Event('storage'));
+
+            handleCallback(syncAccount);
+            return;
+          }
+        } catch (ignored) {}
       }
 
-      try {
-        const configRes = await cloudClient.get(`/api/activation/activate?code=${syncCodeToTry}`);
-        const config = configRes.data;
-        if (config && (config.restaurantName || config.restaurantId)) {
-          const syncAccount = {
-            restaurantName: config.restaurantName || 'Adithyan',
-            syncCode: syncCodeToTry,
-            restaurantId: config.restaurantId,
-            email: cleanedCred.includes('@') ? cleanedCred : 'adithyanvijayan21644@gmail.com',
-            role: 'OWNER',
-          };
-
-          const fullPayload = {
-            syncCode: syncCodeToTry,
-            restaurantId: config.restaurantId,
-            profile: { restaurantName: config.restaurantName || 'Adithyan' },
-            zones: Array.from(new Set((config.tables || []).map(t => t.areaName || t.area || 'General Area'))).map((name, idx) => ({ id: idx + 1, name })),
-            tables: (config.tables || []).map((t, idx) => ({ id: idx + 1, number: t.tableNumber || t.number, area: t.areaName || t.area || 'General Area', capacity: t.capacity || 4 })),
-            menuItems: (config.menuItems || []).map((m, idx) => ({
-              id: idx + 1,
-              category: (m.categoryName && m.categoryName.trim()) || (m.category && m.category.trim()) || 'Starters',
-              name: m.name || 'Unnamed Item',
-              code: m.shortCode || m.code || 'ITEM',
-              price: parseFloat(m.price) || 0,
-              type: m.veg ? "Veg" : "Non-Veg",
-              veg: Boolean(m.veg)
-            })),
-            categories: config.categories || ["Starters", "Main Course", "Beverages"],
-            waiters: (config.waiters || []).map((w, idx) => ({ id: idx + 1, name: w.name, pin: w.pin || w.code || '1234', role: w.role || 'Waiter', status: w.status || 'Active' }))
-          };
-
-          localStorage.setItem('smartdine_active_email', syncAccount.email);
-          localStorage.setItem('smartdine_restaurant_name', syncAccount.restaurantName);
-          localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
-          localStorage.setItem('smartdine_setup', JSON.stringify(fullPayload));
-          window.dispatchEvent(new Event('storage'));
-
-          handleCallback(syncAccount);
-          return;
-        }
-      } catch (ignoredSyncErr) {}
-
-      if (backendErrMsg) {
-        setError(`⚠️ ${backendErrMsg}`);
-      } else {
-        setError('Incorrect credentials. Please verify your email and password.');
-      }
-      setLoading(false);
+      setError('⚠️ Invalid Credentials. Check your User ID, Phone Number, or Password.');
     } catch (err) {
-      console.warn('[LoginScreen] Auth error:', err);
-      const serverErr = err.response?.data?.error || err.response?.data?.message;
-      if (serverErr) {
-        setError(`⚠️ ${serverErr}`);
-      } else {
-        setError('Incorrect credentials. Please try again.');
-      }
+      setError('⚠️ Connection Error. Please verify your internet connection.');
+    } finally {
       setLoading(false);
     }
   };
