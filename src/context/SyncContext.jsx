@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { API_URL } from '../config';
+import { cloudClient } from '../config';
 
 const SyncContext = createContext();
 
@@ -42,9 +42,8 @@ export function SyncProvider({ children }) {
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/activation/analytics?filter=today&code=${syncCode}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const res = await cloudClient.get(`/api/activation/analytics?filter=today&code=${syncCode}`);
+      const json = res.data;
 
       // Persist to localStorage for 24/7 offline standalone viewing
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(json)); } catch (_) {}

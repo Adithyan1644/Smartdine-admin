@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API_URL } from '../config';
+import { cloudClient } from '../config';
 
 const sanitizeMenuItem = (itm, idx) => {
   const name = itm.name || 'Unnamed Item';
@@ -97,8 +97,8 @@ export default function SetupScreen() {
 
   // Fetch live genuine data directly from backend Cloud SQL database on mount
   React.useEffect(() => {
-    fetch(`${API_URL}/api/activation/config?code=${encodeURIComponent(syncCode)}`)
-      .then(res => res.ok ? res.json() : null)
+    cloudClient.get(`/api/activation/config?code=${encodeURIComponent(syncCode)}`)
+      .then(res => res.data)
       .then(data => {
         if (data && !data.error) {
           if (Array.isArray(data.tables) && data.tables.length > 0) {
@@ -173,9 +173,8 @@ export default function SetupScreen() {
   const [newAddonPrice, setNewAddonPrice] = useState("");
 
   const fetchAddons = () => {
-    fetch(`${API_URL}/api/addons`)
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setAddons(data))
+    cloudClient.get('/api/addons')
+      .then(res => setAddons(res.data || []))
       .catch(err => console.warn('[SetupScreen] Failed to fetch addons:', err));
   };
 
@@ -187,24 +186,18 @@ export default function SetupScreen() {
     e.preventDefault();
     if (!newAddonName.trim()) return;
     try {
-      const res = await fetch(`${API_URL}/api/addons`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newAddonName.trim(),
-          price: parseFloat(newAddonPrice) || 0.0,
-          isAvailable: true
-        })
+      const res = await cloudClient.post('/api/addons', {
+        name: newAddonName.trim(),
+        price: parseFloat(newAddonPrice) || 0.0,
+        isAvailable: true
       });
-      if (res.ok) {
-        const savedAddon = await res.json();
-        const updatedA = [...addons, savedAddon];
-        setAddons(updatedA);
-        setNewAddonName("");
-        setNewAddonPrice("");
-        setShowAddAddon(false);
-        autoSyncConfig(null, null, null, null, updatedA);
-      }
+      const savedAddon = res.data;
+      const updatedA = [...addons, savedAddon];
+      setAddons(updatedA);
+      setNewAddonName("");
+      setNewAddonPrice("");
+      setShowAddAddon(false);
+      autoSyncConfig(null, null, null, null, updatedA);
     } catch (err) {
       alert("Error saving addon: " + err.message);
     }
@@ -213,12 +206,10 @@ export default function SetupScreen() {
   const handleDeleteAddon = async (id) => {
     if (!window.confirm("Are you sure you want to delete this Add-on item?")) return;
     try {
-      const res = await fetch(`${API_URL}/api/addons/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        const updatedA = addons.filter(a => a.id !== id);
-        setAddons(updatedA);
-        autoSyncConfig(null, null, null, null, updatedA);
-      }
+      await cloudClient.delete(`/api/addons/${id}`);
+      const updatedA = addons.filter(a => a.id !== id);
+      setAddons(updatedA);
+      autoSyncConfig(null, null, null, null, updatedA);
     } catch (err) {
       alert("Error deleting addon: " + err.message);
     }
@@ -226,8 +217,8 @@ export default function SetupScreen() {
 
   // Auto-fetch configuration from backend on mount
   React.useEffect(() => {
-    fetch(`${API_URL}/api/activation/activate?code=${syncCode}`)
-      .then(res => res.ok ? res.json() : null)
+    cloudClient.get(`/api/activation/activate?code=${syncCode}`)
+      .then(res => res.data)
       .then(data => {
         if (data) {
           if (data.tables && data.tables.length > 0) {
@@ -318,8 +309,8 @@ export default function SetupScreen() {
   React.useEffect(() => {
     if (!syncCode) return;
     
-    fetch(`${API_URL}/api/activation/activate?code=${syncCode}`)
-      .then(res => res.json())
+    cloudClient.get(`/api/activation/activate?code=${syncCode}`)
+      .then(res => res.data)
       .then(config => {
         if (config && !config.error) {
           if (config.categories) {
@@ -368,21 +359,16 @@ export default function SetupScreen() {
     setSyncError("");
     try {
       const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-      const response = await fetch(`${API_URL}/api/activation/save-config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          areas, 
-          tables, 
-          menuItems,
-          categories: categoriesList,
-          waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
-          syncCode: syncCode, // Pass existing state sync code directly
-          restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
-        }),
+      const response = await cloudClient.post('/api/activation/save-config', {
+        areas, 
+        tables, 
+        menuItems,
+        categories: categoriesList,
+        waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
+        syncCode: syncCode, // Pass existing state sync code directly
+        restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
       });
-      if (!response.ok) throw new Error("HTTP error " + response.status);
-      const data = await response.json();
+      const data = response.data;
       if (data.success) {
         setSyncCode(data.code);
         
@@ -587,25 +573,19 @@ export default function SetupScreen() {
       ])).filter(Boolean);
 
       const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-      const response = await fetch(`${API_URL}/api/activation/save-config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          areas: areasToSync, 
-          tables: tablesToSync, 
-          menuItems: itemsToSync,
-          categories: catList,
-          waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
-          addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
-          syncCode: syncCode,
-          restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
-        }),
+      const response = await cloudClient.post('/api/activation/save-config', {
+        areas: areasToSync, 
+        tables: tablesToSync, 
+        menuItems: itemsToSync,
+        categories: catList,
+        waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
+        addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
+        syncCode: syncCode,
+        restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
       });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.code) {
-          setSyncCode(data.code);
-        }
+      const data = response.data;
+      if (data && data.success && data.code) {
+        setSyncCode(data.code);
       }
     } catch (e) {
       console.warn('[SetupScreen] Background auto-sync failed:', e);

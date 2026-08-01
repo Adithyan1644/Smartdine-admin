@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { API_URL } from '../config';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartTooltip,
   ResponsiveContainer, PieChart, Pie, Cell,

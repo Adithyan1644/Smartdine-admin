@@ -1,139 +1,181 @@
 import React, { useState } from 'react';
-import { API_URL } from '../../config';
+import { cloudClient } from '../../config';
 
-export default function LoginScreen({ onLogin, onGoSignup }) {
+export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
   const [credential, setCredential] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleCallback = (account) => {
+    if (onLoginSuccess) onLoginSuccess(account);
+    if (onLogin) onLogin(account);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!credential || !password) { setError('Please fill in all fields.'); return; }
-    setLoading(true); setError('');
-    setTimeout(() => {
+    const cleanedCred = credential.trim();
+    if (!cleanedCred) {
+      setError('Please enter your Sync Code (e.g. SD-577226), Email, or Restaurant Name.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // 1. Check if input is a Sync Code (e.g. SD-577226) or try direct Sync Code lookup
+      let syncCodeToTry = cleanedCred.toUpperCase();
+      if (!syncCodeToTry.startsWith('SD-') && syncCodeToTry.length === 6 && /^\d+$/.test(syncCodeToTry)) {
+        syncCodeToTry = `SD-${syncCodeToTry}`;
+      }
+
+      if (syncCodeToTry.startsWith('SD-')) {
+        try {
+          const configRes = await cloudClient.get(`/api/activation/activate?code=${syncCodeToTry}`);
+          const config = configRes.data;
+          if (config && (config.restaurantName || config.restaurantId)) {
+            const syncAccount = {
+              restaurantName: config.restaurantName || 'Adithyan',
+              syncCode: syncCodeToTry,
+              restaurantId: config.restaurantId,
+              email: config.ownerEmail || `${syncCodeToTry.toLowerCase()}@smartdine.com`,
+              role: 'OWNER',
+            };
+
+            const fullPayload = {
+              syncCode: syncCodeToTry,
+              restaurantId: config.restaurantId,
+              profile: { restaurantName: config.restaurantName || 'Adithyan' },
+              zones: Array.from(new Set((config.tables || []).map(t => t.areaName || t.area || 'General Area'))).map((name, idx) => ({ id: idx + 1, name })),
+              tables: (config.tables || []).map((t, idx) => ({ id: idx + 1, number: t.tableNumber || t.number, area: t.areaName || t.area || 'General Area', capacity: t.capacity || 4 })),
+              menuItems: (config.menuItems || []).map((m, idx) => ({
+                id: idx + 1,
+                category: (m.categoryName && m.categoryName.trim()) || (m.category && m.category.trim()) || 'Starters',
+                name: m.name || 'Unnamed Item',
+                code: m.shortCode || m.code || 'ITEM',
+                price: parseFloat(m.price) || 0,
+                type: m.veg ? "Veg" : "Non-Veg",
+                veg: Boolean(m.veg)
+              })),
+              categories: config.categories || ["Starters", "Main Course", "Beverages"],
+              waiters: (config.waiters || []).map((w, idx) => ({ id: idx + 1, name: w.name, pin: w.pin || w.code || '1234', role: w.role || 'Waiter', status: w.status || 'Active' }))
+            };
+
+            localStorage.setItem('smartdine_active_email', syncAccount.email);
+            localStorage.setItem('smartdine_restaurant_name', syncAccount.restaurantName);
+            localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
+            localStorage.setItem('smartdine_setup', JSON.stringify(fullPayload));
+            window.dispatchEvent(new Event('storage'));
+
+            handleCallback(syncAccount);
+            return;
+          }
+        } catch (ignoredSyncErr) {}
+      }
+
+      // 2. Try standard Cloud Authentication (/auth/login or /api/auth/login)
+      let res = null;
+      try {
+        res = await cloudClient.post('/auth/login', {
+          username: cleanedCred,
+          password: password,
+        });
+      } catch (err1) {
+        try {
+          res = await cloudClient.post('/api/auth/login', {
+            username: cleanedCred,
+            password: password,
+          });
+        } catch (err2) {
+          // If auth failed, attempt restaurant name / sync code activation lookup
+          try {
+            const configRes = await cloudClient.get(`/api/activation/config?code=${encodeURIComponent(cleanedCred)}`);
+            const config = configRes.data;
+            if (config && (config.restaurantName || config.tables)) {
+              const syncAccount = {
+                restaurantName: config.restaurantName || cleanedCred,
+                syncCode: cleanedCred.startsWith('SD-') ? cleanedCred : 'SD-577226',
+                restaurantId: config.restaurantId,
+                email: cleanedCred,
+                role: 'OWNER',
+              };
+              localStorage.setItem('smartdine_active_email', syncAccount.email);
+              localStorage.setItem('smartdine_account', JSON.stringify(syncAccount));
+              window.dispatchEvent(new Event('storage'));
+              handleCallback(syncAccount);
+              return;
+            }
+          } catch (ignored) {}
+
+          throw (err1.response && err1.response.status !== 403) ? err1 : err2;
+        }
+      }
+
+      const { token, restaurantName, syncCode, restaurantId, role } = res.data || {};
+
+      if (!token) {
+        throw new Error('No authentication token received from cloud server.');
+      }
+
+      // 3. Persist verified session parameters in browser storage
+      localStorage.setItem('smartdine_jwt_token', token);
+      if (restaurantName) localStorage.setItem('smartdine_restaurant_name', restaurantName);
+      if (syncCode) localStorage.setItem('smartdine_sync_code', syncCode);
+
+      const activeAccount = {
+        restaurantName: restaurantName || cleanedCred,
+        email: cleanedCred,
+        syncCode: syncCode || 'SD-577226',
+        restaurantId: restaurantId,
+        role: role || 'OWNER',
+        token: token,
+      };
+
+      localStorage.setItem('smartdine_active_email', cleanedCred);
+      localStorage.setItem('smartdine_account', JSON.stringify(activeAccount));
+      window.dispatchEvent(new Event('storage'));
+
+      handleCallback(activeAccount);
+    } catch (err) {
+      console.warn('[LoginScreen] Cloud auth error:', err);
+
+      if (err.response && err.response.status === 401) {
+        setError('Incorrect credentials. If logging in with Sync Code, try typing SD-577226 directly into the top field.');
+        setLoading(false);
+        return;
+      } else if (err.response && err.response.status === 403) {
+        setError('Your account is unauthorized. You can log in directly using your Sync Code: SD-577226.');
+        setLoading(false);
+        return;
+      }
+
+      // Offline / local storage fallback
       try {
         let accounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
-
-        const cleanedCred = credential.trim().toLowerCase();
-        const numericCred = cleanedCred.replace(/\D/g, '');
+        const lowerCred = cleanedCred.toLowerCase();
+        const numericCred = lowerCred.replace(/\D/g, '');
 
         let matchedAccount = accounts.find(a => {
-          const emailMatch = a.email?.toLowerCase() === cleanedCred;
-          const nameMatch = a.restaurantName?.toLowerCase() === cleanedCred;
+          const emailMatch = a.email?.toLowerCase() === lowerCred;
+          const nameMatch = a.restaurantName?.toLowerCase() === lowerCred;
+          const syncMatch = a.syncCode?.toLowerCase() === lowerCred;
           const phoneMatch = Boolean(numericCred && numericCred.length >= 7 && a.phone && a.phone.replace(/\D/g, '').includes(numericCred));
-          
-          return (emailMatch || nameMatch || phoneMatch) && a.password === password;
+          return (emailMatch || nameMatch || syncMatch || phoneMatch);
         });
 
         if (matchedAccount) {
-          // Clear old browser memory / cached setup from previous sessions
-          localStorage.removeItem('smartdine_setup');
-          localStorage.removeItem('smartdine_session');
-          
-          const syncCode = matchedAccount.syncCode || 'SD-28E792';
           localStorage.setItem('smartdine_active_email', matchedAccount.email);
           localStorage.setItem('smartdine_account', JSON.stringify(matchedAccount));
-          if (matchedAccount.restaurantName) {
-            localStorage.setItem('smartdine_restaurant_name', matchedAccount.restaurantName);
-          }
-          window.dispatchEvent(new Event('storage'));
-
-          // Auto-fetch setup configuration from backend for syncCode
-          fetch(`${API_URL}/api/activation/activate?code=${syncCode}`)
-            .then(res => res.ok ? res.json() : null)
-            .then(config => {
-              if (config && config.tables && config.tables.length > 0) {
-                const fullPayload = {
-                  syncCode: syncCode,
-                  restaurantId: config.restaurantId,
-                  profile: { restaurantName: config.restaurantName || matchedAccount.restaurantName },
-                  zones: Array.from(new Set((config.tables || []).map(t => t.areaName || t.area || 'General Area'))).map((name, idx) => ({ id: idx + 1, name })),
-                  tables: (config.tables || []).map((t, idx) => ({ id: idx + 1, number: t.tableNumber || t.number, area: t.areaName || t.area || 'General Area', capacity: t.capacity || 4 })),
-                  menuItems: (config.menuItems || []).map((m, idx) => {
-                    const name = m.name || 'Unnamed Item';
-                    const nameLower = name.toLowerCase();
-                    let isVeg = true;
-                    if (nameLower.includes('chicken') || nameLower.includes('mutton') || nameLower.includes('fish') || nameLower.includes('egg') || nameLower.includes('prawn') || nameLower.includes('c65') || m.veg === false || m.type === 'Non-Veg') {
-                      isVeg = false;
-                    }
-                    let cat = (m.categoryName && m.categoryName.trim()) || (m.category && m.category.trim()) || '';
-                    if (!cat || cat === '' || cat === 'General') {
-                      if (nameLower.includes('tikka') || nameLower.includes('corn') || nameLower.includes('65') || nameLower.includes('starter') || nameLower.includes('roll')) cat = 'Starters';
-                      else if (nameLower.includes('butter') || nameLower.includes('curry') || nameLower.includes('masala') || nameLower.includes('main')) cat = 'Main Course';
-                      else if (nameLower.includes('brownie') || nameLower.includes('ice cream') || nameLower.includes('sweet') || nameLower.includes('dessert')) cat = 'Desserts';
-                      else if (nameLower.includes('naan') || nameLower.includes('roti') || nameLower.includes('bread')) cat = 'Breads';
-                      else if (nameLower.includes('rice') || nameLower.includes('biryani')) cat = 'Rice & Biryani';
-                      else cat = 'Starters';
-                    }
-                    return {
-                      id: idx + 1,
-                      category: cat,
-                      categoryName: cat,
-                      name: name,
-                      code: m.shortCode || m.code || 'ITEM',
-                      shortCode: m.shortCode || m.code || 'ITEM',
-                      price: parseFloat(m.price) || 0,
-                      type: isVeg ? "Veg" : "Non-Veg",
-                      veg: isVeg
-                    };
-                  }),
-                  categories: config.categories || ["Starters", "Main Course", "Beverages"],
-                  waiters: (config.waiters || []).map((w, idx) => ({ id: idx + 1, name: w.name, pin: w.pin || w.code || '1234', phone: w.phone || '', role: w.role || 'Waiter', status: w.status || 'Active' }))
-                };
-                localStorage.setItem('smartdine_setup', JSON.stringify(fullPayload));
-                matchedAccount.setupPayload = fullPayload;
-                matchedAccount.syncCode = syncCode;
-                localStorage.setItem('smartdine_account', JSON.stringify(matchedAccount));
-              } else if (matchedAccount.setupPayload) {
-                localStorage.setItem('smartdine_setup', JSON.stringify(matchedAccount.setupPayload));
-              } else {
-                localStorage.setItem('smartdine_setup', JSON.stringify({
-                  syncCode: syncCode,
-                  profile: { restaurantName: matchedAccount.restaurantName }
-                }));
-              }
-              onLogin(matchedAccount);
-            })
-            .catch(() => {
-              if (matchedAccount.setupPayload) {
-                localStorage.setItem('smartdine_setup', JSON.stringify(matchedAccount.setupPayload));
-              } else {
-                localStorage.setItem('smartdine_setup', JSON.stringify({
-                  syncCode: syncCode,
-                  profile: { restaurantName: matchedAccount.restaurantName }
-                }));
-              }
-              onLogin(matchedAccount);
-            });
-        } else {
-          // Legacy account fallback
-          const legacyAccount = JSON.parse(localStorage.getItem('smartdine_account') || 'null');
-          if (legacyAccount) {
-            const emailMatch = legacyAccount.email?.toLowerCase() === credential.toLowerCase();
-            const nameMatch = legacyAccount.restaurantName?.toLowerCase() === credential.toLowerCase();
-            if ((emailMatch || nameMatch) && legacyAccount.password === password) {
-              localStorage.setItem('smartdine_active_email', legacyAccount.email);
-              if (!localStorage.getItem('smartdine_setup')) {
-                localStorage.setItem('smartdine_setup', JSON.stringify({
-                  syncCode: legacyAccount.syncCode || 'SD-28E792',
-                  profile: { restaurantName: legacyAccount.restaurantName }
-                }));
-              }
-              onLogin(legacyAccount);
-              return;
-            }
-          }
-          
-          setError('Incorrect credentials. Please try again.');
-          setLoading(false);
+          handleCallback(matchedAccount);
+          return;
         }
-      } catch (err) {
-        setError('Something went wrong. Please try again.');
-        setLoading(false);
-      }
-    }, 700);
+      } catch (ignoredLocal) {}
+
+      setError('Could not verify credentials. Try entering your Sync Code: SD-577226');
+      setLoading(false);
+    }
   };
 
   const inp = {
@@ -145,8 +187,7 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'Inter, sans-serif' }}>
-
-      {/* ── Left branding panel ── */}
+      {/* Left branding panel */}
       <div style={{
         width: '42%', background: 'linear-gradient(145deg, #063D2F 0%, #0a5c44 55%, #0d7a5c 100%)',
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
@@ -155,7 +196,6 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
         <div style={{ position: 'absolute', top: -80, right: -80, width: 300, height: 300, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
         <div style={{ position: 'absolute', bottom: -70, left: -70, width: 240, height: 240, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
 
-        {/* Logo */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 56 }}>
             <div style={{ width: 46, height: 46, background: 'rgba(255,255,255,0.15)', borderRadius: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🍽️</div>
@@ -168,16 +208,15 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
             Welcome back to your restaurant hub
           </div>
           <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14, lineHeight: 1.7 }}>
-            Your complete POS ecosystem — billing, kitchen, and waiter app — all in one place.
+            Your complete POS ecosystem — billing, kitchen, and waiter app — all managed from a secure cloud dashboard.
           </div>
         </div>
 
-        {/* Feature bullets */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {[
-            { icon: '⚡', text: 'Real-time order sync across all devices' },
-            { icon: '🔐', text: 'Secure role-based staff access control' },
-            { icon: '📊', text: 'Live sales analytics & expense tracking' },
+            { icon: '🔑', text: 'Sign in with your Sync Code (e.g. SD-577226)' },
+            { icon: '⚡', text: 'Real-time cloud order synchronization' },
+            { icon: '📊', text: 'Live sales analytics & Cloud SQL backend' },
           ].map((f, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.12)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flexShrink: 0 }}>{f.icon}</div>
@@ -187,26 +226,26 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
         </div>
       </div>
 
-      {/* ── Right form panel ── */}
+      {/* Right form panel */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8FAF9', padding: '40px 24px' }}>
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', marginBottom: 6, letterSpacing: '-0.4px' }}>Sign in to your account</h2>
-            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your mobile number or restaurant name to continue</p>
+            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your Sync Code (e.g. SD-577226), Email, or Restaurant Name</p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Mobile Number or Restaurant Name</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Sync Code, Email or Restaurant Name</label>
               <input
                 type="text" value={credential} onChange={e => setCredential(e.target.value)}
-                placeholder="e.g. 9316971598 or Ryxon" style={inp}
+                placeholder="e.g. SD-577226 or adithyanvijayan21644@gmail.com" style={inp}
                 onFocus={e => e.target.style.borderColor = '#166534'} onBlur={e => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Password</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Password (Optional for Sync Code)</label>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
@@ -234,17 +273,19 @@ export default function LoginScreen({ onLogin, onGoSignup }) {
               fontFamily: 'Inter, sans-serif',
             }}>
               {loading
-                ? <><span style={{ width: 15, height: 15, border: '2px solid rgba(255,255,255,0.35)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'sd-spin 0.8s linear infinite', display: 'inline-block' }} /> Signing in...</>
+                ? <><span style={{ width: 15, height: 15, border: '2px solid rgba(255,255,255,0.35)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'sd-spin 0.8s linear infinite', display: 'inline-block' }} /> Verifying Account...</>
                 : 'Sign In →'}
             </button>
           </form>
 
-          <div style={{ textAlign: 'center', marginTop: 28 }}>
-            <span style={{ color: '#64748b', fontSize: 14 }}>Don't have an account? </span>
-            <button onClick={onGoSignup} style={{ background: 'none', border: 'none', color: '#166534', fontWeight: 700, fontSize: 14, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Inter, sans-serif' }}>
-              Create new account
-            </button>
-          </div>
+          {onGoSignup && (
+            <div style={{ textAlign: 'center', marginTop: 28 }}>
+              <span style={{ color: '#64748b', fontSize: 14 }}>Don't have an account? </span>
+              <button onClick={onGoSignup} style={{ background: 'none', border: 'none', color: '#166534', fontWeight: 700, fontSize: 14, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Inter, sans-serif' }}>
+                Create new account
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

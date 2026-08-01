@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { API_URL } from '../config';
+import { cloudClient } from '../config';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -57,25 +57,17 @@ function AddWaiterModal({ onClose, onSaved, restaurantId }) {
     try {
       const setup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
       const syncCode = setup?.syncCode || restaurantId; // syncCode preferred for correct UUID resolution
-      const res = await fetch(`${API_URL}/auth/register-waiter`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          fullName: form.fullName.trim(),
-          username: form.username.trim().toLowerCase(),
-          pin: form.pin,
-          restaurantId,
-          syncCode, // allows backend to resolve the correct restaurant UUID
-        }),
+      await cloudClient.post('/auth/register-waiter', {
+        fullName: form.fullName.trim(),
+        username: form.username.trim().toLowerCase(),
+        pin: form.pin,
+        restaurantId,
+        syncCode, // allows backend to resolve the correct restaurant UUID
       });
-      if (res.ok) {
-        onSaved();
-      } else {
-        const body = await res.json().catch(() => ({}));
-        setApiError(body.message || body.error || `Server error: ${res.status}`);
-      }
+      onSaved();
     } catch (err) {
-      setApiError('Cannot connect to the local server. Make sure Spring Boot is running.');
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to register waiter on cloud server.';
+      setApiError(msg);
     } finally {
       setSaving(false);
     }
@@ -242,20 +234,13 @@ export default function StaffScreen() {
     try {
       const setupObj = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
       const syncCode = setupObj?.syncCode || account?.syncCode || '';
-      let url = `${API_URL}/auth/waiters?restaurantId=${restaurantId}&activeOnly=false`;
+      let url = `/auth/waiters?restaurantId=${restaurantId}&activeOnly=false`;
       if (syncCode) {
         url += `&syncCode=${syncCode}`;
       }
-      const res = await fetch(url, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStaff(data);
-        setUsingDemo(false);
-      } else {
-        throw new Error(`${res.status}`);
-      }
+      const res = await cloudClient.get(url);
+      setStaff(res.data || []);
+      setUsingDemo(false);
     } catch {
       // Fallback to demo data when server is offline
       setStaff(DEMO_STAFF);
@@ -275,10 +260,7 @@ export default function StaffScreen() {
       return;
     }
     try {
-      await fetch(`${API_URL}/auth/waiters/${member.id}/deactivate`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-      });
+      await cloudClient.patch(`/auth/waiters/${member.id}/deactivate`);
       showToast(`${member.fullName || member.username} has been deactivated.`);
       loadStaff();
     } catch {
@@ -293,10 +275,7 @@ export default function StaffScreen() {
       return;
     }
     try {
-      await fetch(`${API_URL}/auth/waiters/${member.id}/activate`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-      });
+      await cloudClient.patch(`/auth/waiters/${member.id}/activate`);
       showToast(`${member.fullName || member.username} has been reactivated.`);
       loadStaff();
     } catch {

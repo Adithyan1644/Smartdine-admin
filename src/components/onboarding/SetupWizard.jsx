@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { API_URL } from '../../config';
+import { cloudClient } from '../../config';
 
 const STEPS = [
   { id: 1, title: 'Profile',    icon: '🏪' },
@@ -134,30 +134,25 @@ export default function SetupWizard({ account, onComplete }) {
       const activeOwnerName = profile.ownerName || activeAccount.ownerName || 'Adithyan V';
       const activeEmail = activeAccount.email || 'test.royalkerala@gmail.com';
 
-      const res = await fetch(`${API_URL}/api/activation/save-config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          syncCode: activeSyncCode,
-          restaurantId: activeRestaurantId,
-          restaurantName: activeRestName,
-          ownerName: activeOwnerName,
-          ownerEmail: activeEmail,
-          isTest,
-          areas: zones.map(z => ({ ...z, tables: tables.filter(t => t.area === z.name).length, active: true })),
-          tables,
-          menuItems,
-          profile,
-          taxes,
-          categories
-        }),
+      const res = await cloudClient.post('/api/activation/save-config', {
+        syncCode: activeSyncCode,
+        restaurantId: activeRestaurantId,
+        restaurantName: activeRestName,
+        ownerName: activeOwnerName,
+        ownerEmail: activeEmail,
+        isTest,
+        areas: zones.map(z => ({ ...z, tables: tables.filter(t => t.area === z.name).length, active: true })),
+        tables,
+        menuItems,
+        profile,
+        taxes,
+        categories
       });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      if (data.success) {
+      const data = res.data;
+      if (data && data.success) {
         setSyncCode(data.code || activeSyncCode); setSynced(true);
       } else {
-        throw new Error(data.error || 'Unknown error');
+        throw new Error(data?.error || 'Unknown error');
       }
     } catch (e) {
       /* Fallback — use the generated account sync code, NEVER hardcoded SD-28E792 */

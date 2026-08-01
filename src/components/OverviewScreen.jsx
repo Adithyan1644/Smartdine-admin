@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useSync } from '../context/SyncContext';
-import { API_URL } from '../config';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
