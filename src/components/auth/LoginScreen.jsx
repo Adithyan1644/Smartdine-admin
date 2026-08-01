@@ -186,7 +186,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {[
-            { icon: '🔑', text: 'Sign in with Username (adithyan) or Sync Code (SD-577226)' },
+            { icon: '🔑', text: 'Sign in with Restaurant Name (RAMA), Sync Code (SD-231542), or Username' },
             { icon: '⚡', text: 'Real-time cloud order synchronization' },
             { icon: '📊', text: 'Live sales analytics & Cloud SQL backend' },
           ].map((f, i) => (
@@ -203,15 +203,15 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div style={{ marginBottom: 36 }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', marginBottom: 6, letterSpacing: '-0.4px' }}>Sign in to your account</h2>
-            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your Username (adithyan), Email, or Sync Code</p>
+            <p style={{ color: '#64748b', fontSize: 14 }}>Enter your Restaurant Name (RAMA), Username, Email, or Sync Code</p>
           </div>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Username, Email or Sync Code</label>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Restaurant Name, Username, Email, or Sync Code</label>
               <input
                 type="text" value={credential} onChange={e => setCredential(e.target.value)}
-                placeholder="e.g. adithyan or SD-577226" style={inp}
+                placeholder="e.g. RAMA, adithyan, or SD-231542" style={inp}
                 onFocus={e => e.target.style.borderColor = '#166534'} onBlur={e => e.target.style.borderColor = '#e2e8f0'}
               />
             </div>
