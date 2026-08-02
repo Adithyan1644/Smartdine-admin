@@ -31,12 +31,17 @@ export function SyncProvider({ children }) {
   const fetchAnalytics = useCallback(async (showLoading = false) => {
     if (showLoading && !analyticsData) setLoading(true);
 
-    // Resolve sync code from localStorage — never fall back to hardcoded ID
+    // Resolve sync code from the direct token written at login.
+    // This is the canonical Cloud-SQL-First key — never from nested setup objects.
     let syncCode = '';
     try {
-      const setup   = JSON.parse(localStorage.getItem('smartdine_setup')   || '{}');
-      const account = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-      syncCode = setup.syncCode || account.syncCode || '';
+      syncCode = localStorage.getItem('smartdine_sync_code') || '';
+      // Graceful fallback for legacy sessions that stored it inside smartdine_setup or smartdine_account
+      if (!syncCode) {
+        const setup   = JSON.parse(localStorage.getItem('smartdine_setup')   || '{}');
+        const account = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
+        syncCode = setup.syncCode || account.syncCode || '';
+      }
     } catch (e) {
       console.warn('[SyncContext] Failed to read sync code:', e);
     }

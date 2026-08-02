@@ -22,50 +22,67 @@ function App() {
 
   /* ── Determine initial screen on mount ── */
   useEffect(() => {
-    const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || 'null');
-    const storedSession = JSON.parse(localStorage.getItem('smartdine_session') || 'null');
+    // Cloud-SQL-First Auth Gate:
+    // The ONLY valid session proof is a JWT token + restaurant name from the cloud.
+    // localStorage never stores operational arrays (tables/menus/areas).
+    const jwtToken = localStorage.getItem('smartdine_jwt_token');
+    const restaurantName = localStorage.getItem('smartdine_restaurant_name');
+    const syncCode = localStorage.getItem('smartdine_sync_code');
+    const isTest = localStorage.getItem('smartdine_is_test') === 'true';
 
-    // Compulsory Authentication Security Check:
-    // User MUST have an active session AND account to access dashboard.
-    if (storedAccount && storedSession) {
-      setAccount(storedAccount);
+    if (jwtToken && restaurantName) {
+      // Valid cloud session — restore minimal account context from token
+      setAccount({ restaurantName, syncCode, isTest });
       setAppState('dashboard');
-    } else if (storedAccount) {
-      setAccount(storedAccount);
-      setAppState('login');
     } else {
+      // No valid JWT — always show login; never allow stale local state access
       setAppState('login');
     }
   }, []);
 
   /* ── Handlers ── */
   const handleSignup = (newAccount) => {
+    // After signup, the SetupWizard collects operational details and pushes them to Cloud SQL.
+    // We store only minimal identity context — never tables or menu arrays.
     setAccount(newAccount);
     setAppState('wizard');
   };
 
-  const handleWizardComplete = () => {
-    localStorage.setItem('smartdine_session', JSON.stringify({ loggedInAt: new Date().toISOString() }));
+  const handleWizardComplete = (wizardAccount) => {
+    // Store ONLY session tokens after wizard completion — zero operational data locally.
+    if (wizardAccount) {
+      if (wizardAccount.token) localStorage.setItem('smartdine_jwt_token', wizardAccount.token);
+      if (wizardAccount.restaurantName) localStorage.setItem('smartdine_restaurant_name', wizardAccount.restaurantName);
+      if (wizardAccount.syncCode) localStorage.setItem('smartdine_sync_code', wizardAccount.syncCode);
+      localStorage.setItem('smartdine_is_test', String(!!wizardAccount.isTest));
+    }
     setAppState('dashboard');
   };
 
   const handleLogin = (acc) => {
-    localStorage.setItem('smartdine_session', JSON.stringify({ loggedInAt: new Date().toISOString() }));
+    // acc shape from LoginScreen: { token, restaurantName, syncCode, isTest }
+    // Store ONLY the secure session tokens — Cloud SQL is the source of truth for all operational data.
+    if (acc.token) localStorage.setItem('smartdine_jwt_token', acc.token);
+    if (acc.restaurantName) localStorage.setItem('smartdine_restaurant_name', acc.restaurantName);
+    if (acc.syncCode) localStorage.setItem('smartdine_sync_code', acc.syncCode);
+    localStorage.setItem('smartdine_is_test', String(!!acc.isTest));
     setAccount(acc);
     setAppState('dashboard');
   };
 
   const handleLogout = () => {
+    // Wipe all session tokens and cached data on logout.
+    localStorage.removeItem('smartdine_jwt_token');
+    localStorage.removeItem('smartdine_sync_code');
+    localStorage.removeItem('smartdine_restaurant_name');
+    localStorage.removeItem('smartdine_is_test');
+    localStorage.removeItem('smartdine_cached_analytics');
+    // Legacy keys cleanup (safe to remove even if absent)
     localStorage.removeItem('smartdine_session');
     localStorage.removeItem('smartdine_account');
     localStorage.removeItem('smartdine_setup');
     localStorage.removeItem('smartdine_active_email');
-    localStorage.removeItem('smartdine_jwt_token');
-    localStorage.removeItem('smartdine_sync_code');
-    localStorage.removeItem('smartdine_restaurant_name');
     localStorage.removeItem('smartdine_accounts');
-    localStorage.removeItem('smartdine_cached_analytics');
-    localStorage.removeItem('smartdine_is_test');
     setAccount(null);
     setAppState('login');
   };
@@ -103,6 +120,7 @@ function App() {
 
   if (appState === 'wizard') {
     return <SetupWizard account={account} onComplete={handleWizardComplete} />;
+    // SetupWizard calls onComplete(wizardAccount) with { token, restaurantName, syncCode, isTest }
   }
 
   if (appState === 'login') {

@@ -44,124 +44,124 @@ const sanitizeMenuItem = (itm, idx) => {
 };
 
 export default function SetupScreen() {
-  // Load initial setup configuration
-  const storedSetup = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
-  const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-  const [syncCode, setSyncCode] = useState(() => storedAccount.syncCode || storedSetup.syncCode || "SD-28E792");
+  // Cloud-SQL-First: syncCode from direct token key set at login — never from stale nested objects.
+  const [syncCode, setSyncCode] = useState(() =>
+    localStorage.getItem('smartdine_sync_code') ||
+    (() => {
+      try {
+        const a = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
+        const s = JSON.parse(localStorage.getItem('smartdine_setup') || '{}');
+        return a.syncCode || s.syncCode || '';
+      } catch { return ''; }
+    })()
+  );
 
-  // 1. Areas State
-  const [areas, setAreas] = useState(() => {
-    if (storedSetup.zones && storedSetup.zones.length > 0) {
-      return storedSetup.zones.map((z, idx) => ({
-        id: z.id || idx + 1,
-        name: z.name,
-        tables: (storedSetup.tables || []).filter(t => t.area === z.name).length,
-        active: true
-      }));
-    }
-    return [];
-  });
+  // ── Cloud-SQL-First Initial States ──
+  // All operational data starts as EMPTY. Cloud SQL is the single source of truth.
+  // No localStorage seeds for areas/tables/menus to prevent stale-data flash.
+  const [cloudLoading, setCloudLoading] = useState(true); // shimmer until first cloud fetch completes
 
-  // 2. Tables State
-  const [tables, setTables] = useState(() => {
-    if (storedSetup.tables && storedSetup.tables.length > 0) {
-      return storedSetup.tables.map((t, idx) => ({
-        id: t.id || idx + 1,
-        number: t.number,
-        area: t.area,
-        capacity: parseInt(t.capacity) || 4,
-        status: "Available"
-      }));
-    }
-    return [];
-  });
+  // 1. Areas State — empty on mount, populated from Cloud SQL
+  const [areas, setAreas] = useState([]);
 
-  // 3. Menu Items State (Sanitized automatically)
-  const [menuItems, setMenuItems] = useState(() => {
-    if (storedSetup.menuItems && storedSetup.menuItems.length > 0) {
-      return storedSetup.menuItems.map((itm, idx) => sanitizeMenuItem(itm, idx));
-    }
-    return [];
-  });
+  // 2. Tables State — empty on mount, populated from Cloud SQL
+  const [tables, setTables] = useState([]);
 
-  // 3b. Categories State
-  const [categories, setCategories] = useState(() => {
-    if (storedSetup.categories && storedSetup.categories.length > 0) {
-      return storedSetup.categories;
-    }
-    return [];
-  });
+  // 3. Menu Items State — empty on mount, populated from Cloud SQL
+  const [menuItems, setMenuItems] = useState([]);
 
-  // Fetch live genuine data directly from backend Cloud SQL database on mount
+  // 3b. Categories State — empty on mount, populated from Cloud SQL
+  const [categories, setCategories] = useState([]);
+
+  // ── Cloud-SQL-First Data Fetch ──
+  // Isolated async/await with per-type try/catch:
+  // A missing areas table will NEVER block menus or tables from rendering.
   React.useEffect(() => {
-    cloudClient.get(`/api/activation/config?code=${encodeURIComponent(syncCode)}`)
-      .then(res => res.data)
-      .then(data => {
-        if (data && !data.error) {
+    if (!syncCode) {
+      setCloudLoading(false);
+      return;
+    }
+    const fetchCloudConfig = async () => {
+      setCloudLoading(true);
+      try {
+        const res = await cloudClient.get(`/api/activation/config?code=${encodeURIComponent(syncCode)}`);
+        const data = res.data;
+        if (!data || data.error) {
+          setCloudLoading(false);
+          return;
+        }
+
+        // Tables & Areas — isolated block
+        try {
           if (Array.isArray(data.tables) && data.tables.length > 0) {
             const loadedTables = data.tables.map((t, idx) => ({
               id: t.id || idx + 1,
-              number: t.number,
-              area: t.area,
+              number: t.number || t.tableNumber,
+              area: t.area || t.areaName,
               capacity: parseInt(t.capacity) || 4,
-              status: "Available"
+              status: 'Available'
             }));
             setTables(loadedTables);
-
-            // Re-derive areas from tables
-            const areaNames = Array.from(new Set(loadedTables.map(t => t.area)));
+            const areaNames = Array.from(new Set(loadedTables.map(t => t.area).filter(Boolean)));
             setAreas(areaNames.map((name, idx) => ({
               id: idx + 1,
-              name: name,
+              name,
               tables: loadedTables.filter(t => t.area === name).length,
               active: true
             })));
           }
+        } catch (e) { console.warn('[SetupScreen] Tables/Areas fetch error:', e); }
 
+        // Menu Items — isolated block
+        try {
           if (Array.isArray(data.menuItems) && data.menuItems.length > 0) {
             setMenuItems(data.menuItems.map((itm, idx) => sanitizeMenuItem(itm, idx)));
           }
+        } catch (e) { console.warn('[SetupScreen] MenuItems fetch error:', e); }
 
+        // Categories — isolated block
+        try {
           if (Array.isArray(data.categories) && data.categories.length > 0) {
             setCategories(data.categories);
           }
+        } catch (e) { console.warn('[SetupScreen] Categories fetch error:', e); }
 
+        // Waiters — isolated block
+        try {
           if (Array.isArray(data.waiters) && data.waiters.length > 0) {
             setWaiters(data.waiters.map((w, idx) => ({
               id: w.id || idx + 1,
               name: w.name || w.fullName,
               code: w.pin || w.code,
-              status: w.status || "Active",
-              lastLogin: w.lastLogin || "Never"
+              status: w.status || 'Active',
+              lastLogin: w.lastLogin || 'Never'
             })));
           }
+        } catch (e) { console.warn('[SetupScreen] Waiters fetch error:', e); }
 
+        // Addons — isolated block
+        try {
           if (Array.isArray(data.addons) && data.addons.length > 0) {
             setAddons(data.addons.map((a, idx) => ({
               id: a.id || idx + 1,
               name: a.name,
               price: parseFloat(a.price) || 0.0,
-              status: a.status || "Active"
+              status: a.status || 'Active'
             })));
           }
-        }
-      })
-      .catch(err => console.log("[SetupScreen] Backend sync note:", err.message));
+        } catch (e) { console.warn('[SetupScreen] Addons fetch error:', e); }
+
+      } catch (err) {
+        console.log('[SetupScreen] Cloud config fetch note:', err.message);
+      } finally {
+        setCloudLoading(false);
+      }
+    };
+    fetchCloudConfig();
   }, [syncCode]);
 
-  // 4. Waiters State
-  const [waiters, setWaiters] = useState(() => {
-    if (storedSetup.waiters && storedSetup.waiters.length > 0) {
-      return storedSetup.waiters.map((w, idx) => ({
-        id: w.id || idx + 1,
-        name: w.name || w.fullName,
-        code: w.pin || w.code,
-        status: w.status || "Active",
-        lastLogin: w.lastLogin || "Never"
-      }));
-    }
-    return [];
-  });
+  // 4. Waiters State — empty on mount, populated from Cloud SQL
+  const [waiters, setWaiters] = useState([]);
 
   // 5. Addons State & Handlers
   const [addons, setAddons] = useState([]);
@@ -627,6 +627,58 @@ export default function SetupScreen() {
       setNewMenuCat(val);
     }
   };
+
+  // ── Professional Shimmer Skeleton Loader (shown while Cloud SQL is fetching) ──
+  if (cloudLoading) {
+    return (
+      <div className="page-content">
+        <div style={{ marginBottom: 20 }}>
+          <h1 className="page-title">Configurations &amp; Settings</h1>
+          <div className="page-subtitle">Loading your restaurant setup from Cloud SQL...</div>
+        </div>
+        <style>{`
+          @keyframes shimmer {
+            0% { background-position: -800px 0; }
+            100% { background-position: 800px 0; }
+          }
+          .skeleton-block {
+            background: linear-gradient(90deg, #f0f4f0 25%, #e0ece0 50%, #f0f4f0 75%);
+            background-size: 800px 100%;
+            animation: shimmer 1.4s infinite linear;
+            border-radius: 10px;
+          }
+        `}</style>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: 24 }}>
+          {[1,2,3,4].map(i => (
+            <div key={i} className="card" style={{ padding: 20 }}>
+              <div className="skeleton-block" style={{ height: 14, width: '60%', marginBottom: 12 }} />
+              <div className="skeleton-block" style={{ height: 32, width: '40%' }} />
+            </div>
+          ))}
+        </div>
+        <div className="card" style={{ padding: 24, marginBottom: 20 }}>
+          <div className="skeleton-block" style={{ height: 18, width: '30%', marginBottom: 16 }} />
+          {[1,2,3].map(i => (
+            <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div className="skeleton-block" style={{ height: 14, width: '25%' }} />
+              <div className="skeleton-block" style={{ height: 14, width: '15%' }} />
+              <div className="skeleton-block" style={{ height: 14, width: '20%' }} />
+            </div>
+          ))}
+        </div>
+        <div className="card" style={{ padding: 24 }}>
+          <div className="skeleton-block" style={{ height: 18, width: '25%', marginBottom: 16 }} />
+          {[1,2,3,4].map(i => (
+            <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div className="skeleton-block" style={{ height: 14, width: '35%' }} />
+              <div className="skeleton-block" style={{ height: 14, width: '10%' }} />
+              <div className="skeleton-block" style={{ height: 14, width: '15%' }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-content">
