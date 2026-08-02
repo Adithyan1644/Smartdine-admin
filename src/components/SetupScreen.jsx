@@ -59,10 +59,7 @@ export default function SetupScreen() {
         active: true
       }));
     }
-    return [
-      { id: 1, name: "Main Hall", tables: 0, active: true },
-      { id: 2, name: "AC Room", tables: 0, active: true }
-    ];
+    return [];
   });
 
   // 2. Tables State
@@ -215,53 +212,7 @@ export default function SetupScreen() {
     }
   };
 
-  // Auto-fetch configuration from backend on mount
-  React.useEffect(() => {
-    cloudClient.get(`/api/activation/activate?code=${syncCode}`)
-      .then(res => res.data)
-      .then(data => {
-        if (data) {
-          if (data.tables && data.tables.length > 0) {
-            const mappedTables = data.tables.map((t, idx) => ({
-              id: idx + 1,
-              number: t.tableNumber || t.number,
-              area: t.areaName || t.area || 'General Area',
-              capacity: parseInt(t.capacity) || 4,
-              status: "Available"
-            }));
-            setTables(mappedTables);
-            const uniqueAreas = Array.from(new Set(mappedTables.map(t => t.area))).map((name, idx) => ({
-              id: idx + 1,
-              name,
-              tables: mappedTables.filter(t => t.area === name).length,
-              active: true
-            }));
-            setAreas(uniqueAreas);
-          }
-          if (data.menuItems && data.menuItems.length > 0) {
-            const sanitized = data.menuItems.map((m, idx) => sanitizeMenuItem(m, idx));
-            setMenuItems(sanitized);
-            
-            // Auto-update localStorage with sanitized items
-            const updatedSetup = { ...storedSetup, syncCode, menuItems: sanitized };
-            localStorage.setItem('smartdine_setup', JSON.stringify(updatedSetup));
-          }
-          if (data.categories && data.categories.length > 0) {
-            setCategories(data.categories);
-          }
-          if (data.waiters && data.waiters.length > 0) {
-            setWaiters(data.waiters.map((w, idx) => ({
-              id: idx + 1,
-              name: w.name,
-              code: w.pin || w.code || '1234',
-              status: w.status || "Active",
-              lastLogin: "Never"
-            })));
-          }
-        }
-      })
-      .catch(err => console.warn('[SetupScreen] Failed to fetch live setup:', err));
-  }, [syncCode]);
+
 
   const [showAddWaiter, setShowAddWaiter] = useState(false);
   const [newWaiterName, setNewWaiterName] = useState("");
@@ -313,10 +264,10 @@ export default function SetupScreen() {
       .then(res => res.data)
       .then(config => {
         if (config && !config.error) {
-          if (config.categories) {
+          if (config.categories && config.categories.length > 0) {
             setCategories(config.categories);
           }
-          if (config.menuItems) {
+          if (config.menuItems && config.menuItems.length > 0) {
             setMenuItems(config.menuItems.map((itm, idx) => ({
               id: idx + 1,
               category: itm.categoryName || itm.category || 'General',
@@ -327,24 +278,34 @@ export default function SetupScreen() {
               status: "Available"
             })));
           }
-          if (config.tables) {
-            setTables(config.tables.map((t, idx) => ({
+          if (config.tables && config.tables.length > 0) {
+            const mappedTables = config.tables.map((t, idx) => ({
               id: idx + 1,
               number: t.tableNumber || t.number,
-              area: t.areaName || t.area,
+              area: t.areaName || t.area || 'General Area',
               capacity: parseInt(t.capacity) || 4,
               status: "Available"
-            })));
+            }));
+            setTables(mappedTables);
+
+            // Derive areas dynamically from fetched tables
+            const uniqueAreaNames = Array.from(new Set(mappedTables.map(t => t.area)));
+            if (uniqueAreaNames.length > 0) {
+              const derivedAreas = uniqueAreaNames.map((aName, idx) => ({
+                id: idx + 1,
+                name: aName,
+                tables: mappedTables.filter(t => t.area === aName).length,
+                active: true
+              }));
+              setAreas(derivedAreas);
+            }
           }
-          if (config.waiters) {
-            setWaiters(config.waiters.map((w, idx) => ({
+          if (config.areas && config.areas.length > 0) {
+            setAreas(config.areas.map((a, idx) => ({
               id: idx + 1,
-              name: w.name,
-              code: w.pin || w.code,
-              phone: w.phone || "",
-              role: w.role || "Waiter",
-              status: w.status,
-              lastLogin: "Never"
+              name: typeof a === 'string' ? a : (a.name || a.areaName || 'General Area'),
+              tables: (config.tables || []).filter(t => (t.areaName || t.area) === (typeof a === 'string' ? a : (a.name || a.areaName))).length,
+              active: true
             })));
           }
         }

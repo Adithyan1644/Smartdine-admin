@@ -54,11 +54,12 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
       }
 
       if (res && res.data && res.data.token) {
-        const { token, restaurantName, syncCode, restaurantId, role } = res.data;
+        const { token, restaurantName, syncCode, restaurantId, role, environment } = res.data;
 
         localStorage.setItem('smartdine_jwt_token', token);
         if (restaurantName) localStorage.setItem('smartdine_restaurant_name', restaurantName);
         if (syncCode) localStorage.setItem('smartdine_sync_code', syncCode);
+        if (environment) localStorage.setItem('smartdine_is_test', JSON.stringify(environment === 'DEV'));
 
         const activeAccount = {
           restaurantName: restaurantName || cleanedCred,
@@ -67,6 +68,7 @@ export default function LoginScreen({ onLogin, onLoginSuccess, onGoSignup }) {
           restaurantId: restaurantId,
           role: role || 'OWNER',
           token: token,
+          isTest: environment === 'DEV'
         };
 
         localStorage.setItem('smartdine_active_email', cleanedCred);

@@ -1,11 +1,9 @@
 import axios from 'axios';
 
-const DEV_GATEWAY = import.meta.env?.VITE_DEV_CLOUD_API_URL || 'https://smartdine-v1-0-git-635032287458.europe-west1.run.app';
-const PROD_GATEWAY = import.meta.env?.VITE_CLOUD_API_URL || 'https://smartdine-saas-prod.appspot.com'; // Production App Engine / Cloud Run URL
-
-// Dynamically determine the active environment
-const isTestEnv = JSON.parse(localStorage.getItem('smartdine_is_test')) || false;
-export const CLOUD_API_URL = isTestEnv ? DEV_GATEWAY : PROD_GATEWAY;
+// Single source of truth: always use the correct App Engine URL
+// Dev: set via VITE_CLOUD_API_URL in .env.development
+// Prod: set via VITE_CLOUD_API_URL in .env.production
+export const CLOUD_API_URL = import.meta.env?.VITE_CLOUD_API_URL || 'https://smartdine-saas.ew.r.appspot.com';
 export const API_URL = import.meta.env?.VITE_API_URL || 'http://localhost:8080'; // Local Biller instance link
 
 // Configure Axios Client with global interceptors

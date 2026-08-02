@@ -60,6 +60,12 @@ function App() {
     localStorage.removeItem('smartdine_account');
     localStorage.removeItem('smartdine_setup');
     localStorage.removeItem('smartdine_active_email');
+    localStorage.removeItem('smartdine_jwt_token');
+    localStorage.removeItem('smartdine_sync_code');
+    localStorage.removeItem('smartdine_restaurant_name');
+    localStorage.removeItem('smartdine_accounts');
+    localStorage.removeItem('smartdine_cached_analytics');
+    localStorage.removeItem('smartdine_is_test');
     setAccount(null);
     setAppState('login');
   };
