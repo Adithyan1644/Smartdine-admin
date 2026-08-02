@@ -327,21 +327,20 @@ export default function SetupScreen() {
         categories: categoriesList,
         waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
         syncCode: syncCode, // Pass existing state sync code directly
-        restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
+        restaurantName: localStorage.getItem('smartdine_restaurant_name') || "SmartDine Restaurant"
       });
       const data = response.data;
       if (data.success) {
         setSyncCode(data.code);
         
-        // Save changes back to smartdine_setup in localStorage
+        // Store minimal sync token back to localStorage (no operational arrays)
         const updatedSetup = {
-          ...storedSetup,
+          syncCode: data.code,
           zones: areas.map(a => ({ id: a.id, name: a.name })),
           tables: tables.map(t => ({ id: t.id, number: t.number, area: t.area, capacity: t.capacity })),
           menuItems: menuItems.map(m => ({ id: m.id, category: m.category, name: m.name, code: m.code, price: m.price, veg: m.type === "Veg" })),
           categories: categoriesList,
-          waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status, lastLogin: w.lastLogin })),
-          syncCode: data.code
+          waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status, lastLogin: w.lastLogin }))
         };
         localStorage.setItem('smartdine_setup', JSON.stringify(updatedSetup));
         
@@ -542,7 +541,7 @@ export default function SetupScreen() {
         waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
         addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
         syncCode: syncCode,
-        restaurantName: storedAccount.restaurantName || storedSetup.profile?.restaurantName || "SmartDine Elite Restaurant"
+        restaurantName: localStorage.getItem('smartdine_restaurant_name') || "SmartDine Restaurant"
       });
       const data = response.data;
       if (data && data.success && data.code) {
