@@ -319,27 +319,32 @@ export default function SetupScreen() {
     setSyncing(true);
     setSyncError("");
     try {
-      const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-      const response = await cloudClient.post('/api/activation/save-config', {
-        areas, 
-        tables, 
+      const catList = Array.from(new Set([
+        ...categories,
+        ...menuItems.map(item => item.category)
+      ])).filter(Boolean);
+
+      const response = await cloudClient.post('/api/public/provision/update-config', {
+        syncCode: syncCode,
+        restaurantName: localStorage.getItem('smartdine_restaurant_name') || 'SmartDine Restaurant',
+        areas,
+        tables,
         menuItems,
-        categories: categoriesList,
-        waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
-        syncCode: syncCode, // Pass existing state sync code directly
-        restaurantName: localStorage.getItem('smartdine_restaurant_name') || "SmartDine Restaurant"
+        categories: catList,
+        waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || '', role: w.role || 'Waiter', status: w.status })),
+        addons: addons.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
       });
       const data = response.data;
       if (data.success) {
-        setSyncCode(data.code);
+        setSyncCode(data.syncCode || syncCode);
         
         // Store minimal sync token back to localStorage (no operational arrays)
         const updatedSetup = {
-          syncCode: data.code,
+          syncCode: data.syncCode || syncCode,
           zones: areas.map(a => ({ id: a.id, name: a.name })),
           tables: tables.map(t => ({ id: t.id, number: t.number, area: t.area, capacity: t.capacity })),
           menuItems: menuItems.map(m => ({ id: m.id, category: m.category, name: m.name, code: m.code, price: m.price, veg: m.type === "Veg" })),
-          categories: categoriesList,
+          categories: catList,
           waiters: waiters.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status, lastLogin: w.lastLogin }))
         };
         localStorage.setItem('smartdine_setup', JSON.stringify(updatedSetup));
@@ -350,7 +355,7 @@ export default function SetupScreen() {
             const accounts = JSON.parse(localStorage.getItem('smartdine_accounts') || '[]');
             const idx = accounts.findIndex(a => a.email?.toLowerCase() === activeEmail.toLowerCase());
             if (idx !== -1) {
-              accounts[idx].syncCode = data.code;
+              accounts[idx].syncCode = data.syncCode || syncCode;
               accounts[idx].setupPayload = updatedSetup;
               localStorage.setItem('smartdine_accounts', JSON.stringify(accounts));
               localStorage.setItem('smartdine_account', JSON.stringify(accounts[idx]));
@@ -362,10 +367,10 @@ export default function SetupScreen() {
         
         setShowSyncModal(true);
       } else {
-        setSyncError("Failed to generate sync code: " + (data.error || "unknown error"));
+        setSyncError("Failed to sync: " + (data.error || "unknown error"));
       }
     } catch (e) {
-      setSyncError("Error: " + e.message + "\n\nMake sure the local SmartDine app (API Server on port 8080) is running.");
+      setSyncError("Error: " + e.message + "\n\nMake sure you are connected to the internet.");
     } finally {
       setSyncing(false);
     }
@@ -522,33 +527,42 @@ export default function SetupScreen() {
 
   const autoSyncConfig = async (customMenuItems, customTables, customWaiters, customAreas, customAddons) => {
     try {
-      const itemsToSync = customMenuItems || menuItems;
-      const tablesToSync = customTables || tables;
-      const waitersToSync = customWaiters || waiters;
-      const areasToSync = customAreas || areas;
-      const addonsToSync = customAddons || addons;
+      const itemsToSync  = customMenuItems !== undefined ? customMenuItems : menuItems;
+      const tablesToSync = customTables    !== undefined ? customTables    : tables;
+      const waitersToSync = customWaiters !== undefined ? customWaiters   : waiters;
+      const areasToSync  = customAreas    !== undefined ? customAreas     : areas;
+      const addonsToSync = customAddons   !== undefined ? customAddons    : addons;
+
       const catList = Array.from(new Set([
         ...categories,
         ...itemsToSync.map(item => item.category)
       ])).filter(Boolean);
 
-      const storedAccount = JSON.parse(localStorage.getItem('smartdine_account') || '{}');
-      const response = await cloudClient.post('/api/activation/save-config', {
-        areas: areasToSync, 
-        tables: tablesToSync, 
-        menuItems: itemsToSync,
-        categories: catList,
-        waiters: waitersToSync.map(w => ({ id: w.id, name: w.name, pin: w.code, phone: w.phone || "", role: w.role || "Waiter", status: w.status })),
-        addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
+      // ─── Authoritative cloud write path ───────────────────────────────────
+      // Calls App Engine → /api/public/provision/update-config
+      // Uses JPA repositories — all column constraints satisfied, full replace.
+      // ProvisioningController normalizes field names (category / categoryName)
+      // and generates shortCodes before delegating to ActivationService.
+      const response = await cloudClient.post('/api/public/provision/update-config', {
         syncCode: syncCode,
-        restaurantName: localStorage.getItem('smartdine_restaurant_name') || "SmartDine Restaurant"
+        restaurantName: localStorage.getItem('smartdine_restaurant_name') || 'SmartDine Restaurant',
+        areas:     areasToSync,
+        tables:    tablesToSync,
+        menuItems: itemsToSync,   // Web Admin sends "category" field — backend normalizes
+        categories: catList,
+        waiters: waitersToSync.map(w => ({
+          id: w.id, name: w.name, pin: w.code,
+          phone: w.phone || '', role: w.role || 'Waiter', status: w.status
+        })),
+        addons: addonsToSync.map(a => ({ name: a.name, price: parseFloat(a.price) || 0 })),
       });
+
       const data = response.data;
-      if (data && data.success && data.code) {
-        setSyncCode(data.code);
+      if (data && data.success && data.syncCode) {
+        setSyncCode(data.syncCode);
       }
     } catch (e) {
-      console.warn('[SetupScreen] Background auto-sync failed:', e);
+      console.warn('[SetupScreen] Background auto-sync failed:', e.response?.data || e.message);
     }
   };
 

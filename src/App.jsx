@@ -31,11 +31,16 @@ function App() {
     const isTest = localStorage.getItem('smartdine_is_test') === 'true';
 
     if (jwtToken && restaurantName) {
-      // Valid cloud session — restore minimal account context from token
+      // Valid cloud session with JWT — restore account context
+      setAccount({ restaurantName, syncCode, isTest });
+      setAppState('dashboard');
+    } else if (syncCode && restaurantName) {
+      // Signed up but page refreshed before JWT was stored (e.g. wizard flow)
+      // Allow access — the user's data exists in Cloud SQL already
       setAccount({ restaurantName, syncCode, isTest });
       setAppState('dashboard');
     } else {
-      // No valid JWT — always show login; never allow stale local state access
+      // No valid session — always show login; never allow stale local state access
       setAppState('login');
     }
   }, []);

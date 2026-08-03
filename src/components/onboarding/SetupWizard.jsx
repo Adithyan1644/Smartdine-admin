@@ -134,23 +134,25 @@ export default function SetupWizard({ account, onComplete }) {
       const activeOwnerName = profile.ownerName || activeAccount.ownerName || 'Adithyan V';
       const activeEmail = activeAccount.email || 'test.royalkerala@gmail.com';
 
-      const res = await cloudClient.post('/api/activation/save-config', {
+      // Call the authoritative cloud write path to save setup configurations
+      const res = await cloudClient.post('/api/public/provision/update-config', {
         syncCode: activeSyncCode,
-        restaurantId: activeRestaurantId,
         restaurantName: activeRestName,
-        ownerName: activeOwnerName,
-        ownerEmail: activeEmail,
-        isTest,
         areas: zones.map(z => ({ ...z, tables: tables.filter(t => t.area === z.name).length, active: true })),
         tables,
-        menuItems,
-        profile,
-        taxes,
-        categories
+        menuItems: menuItems.map(itm => ({
+          ...itm,
+          category: itm.category || 'General',
+          categoryName: itm.category || 'General',
+          shortCode: itm.code || itm.shortCode || 'ITM'
+        })),
+        categories,
+        waiters: [],
+        addons: []
       });
       const data = res.data;
       if (data && data.success) {
-        setSyncCode(data.code || activeSyncCode); setSynced(true);
+        setSyncCode(data.syncCode || activeSyncCode); setSynced(true);
       } else {
         throw new Error(data?.error || 'Unknown error');
       }
@@ -169,6 +171,8 @@ export default function SetupWizard({ account, onComplete }) {
     const payload = { profile, zones, tables, menuItems, categories, taxes, syncCode, isTest, completedAt: new Date().toISOString() };
     localStorage.setItem('smartdine_setup', JSON.stringify(payload));
     localStorage.setItem('smartdine_is_test', JSON.stringify(isTest));
+    // ⚡ Always persist sync code directly — SetupScreen reads this key on mount
+    if (syncCode) localStorage.setItem('smartdine_sync_code', syncCode);
     
     try {
       const activeEmail = localStorage.getItem('smartdine_active_email');
