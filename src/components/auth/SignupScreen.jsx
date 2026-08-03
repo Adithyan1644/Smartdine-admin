@@ -111,7 +111,6 @@ export default function SignupScreen({ onSignup, onGoLogin }) {
       localStorage.setItem('smartdine_is_test', JSON.stringify(isTest));
       // ⚡ Critical: store sync code directly so SetupScreen can read it without JWT
       localStorage.setItem('smartdine_sync_code', syncCode);
-      if (data.token) localStorage.setItem('smartdine_jwt_token', data.token);
       window.dispatchEvent(new Event('storage'));
       
       onSignup(account);
